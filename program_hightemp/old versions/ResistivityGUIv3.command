@@ -1,0 +1,1 @@
+python Google\ Drive/resistivity_program/ResistivityGUIv3.py
