@@ -307,8 +307,6 @@ class InitialCheck:
         self.voltage = .1
         
         
-        self.measurement = 'ON'
-        self.updateGUI(stamp='Measurement Status', data=self.measurement)
         self.setupIV()
 
         self.Data = {}
@@ -322,10 +320,6 @@ class InitialCheck:
         
         self.create_plot()
         
-        self.measurement = 'OFF'
-        self.updateGUI(stamp='Measurement Status', data=self.measurement)
-        
-        self.updateGUI(stamp='Status Bar', data='Ready')
     #end init
     #--------------------------------------------------------------------------
     
@@ -509,31 +503,6 @@ class InitialCheck:
         
     #end def
     
-#end class
-###############################################################################
-
-###############################################################################
-class ProcessThreadCheck(Thread):
-    """
-    Thread that runs the operations behind the GUI. This includes measuring
-    and plotting.
-    """
-    
-    #--------------------------------------------------------------------------
-    def __init__(self):
-        """ Init Worker Thread Class """
-        Thread.__init__(self)
-        self.start()
-        
-    #end init
-        
-    #--------------------------------------------------------------------------
-    def run(self):
-        """ Run Worker Thread """
-        #Setup()
-        ic = InitialCheck()
-    #end def
-        
 #end class
 ###############################################################################
 
@@ -1040,7 +1009,7 @@ class UserPanel(wx.Panel):
             self.name_folder()
             
             if self.run_check == wx.ID_OK:
-                sp = Setup()
+                
                 file = dataFile # creates a data file
                 myfile = open(dataFile, 'w') # opens file for writing/overwriting
                 begin = datetime.now() # Current date and time
@@ -1055,6 +1024,7 @@ class UserPanel(wx.Panel):
                 abort_ID = 0
                 
                 #start the threading process
+                sp = Setup()
                 thread = ProcessThreadRun()
                 
                 self.btn_run.Disable()

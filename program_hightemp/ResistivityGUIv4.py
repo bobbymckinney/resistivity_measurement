@@ -325,12 +325,12 @@ class Setup:
         global heaterTC
 
         # Define Keithley instrument ports:
-        self.k2700 = k2700 = Keithley_2700('GPIB2::16::INSTR') # MultiMeter for Matrix Card operation
-        self.k2400 = k2400 = Keithley_2400('GPIB2::24::INSTR') # SourceMeter
-        self.k2182 = k2182 = Keithley_2182('GPIB2::7::INSTR') # NanoVoltMeter
+        self.k2700 = k2700 = Keithley_2700('GPIB0::16::INSTR') # MultiMeter for Matrix Card operation
+        self.k2400 = k2400 = Keithley_2400('GPIB0::24::INSTR') # SourceMeter
+        self.k2182 = k2182 = Keithley_2182('GPIB0::7::INSTR') # NanoVoltMeter
         # Define the ports for the PID
-        self.sampleTC = sampleTC = PID('/dev/cu.usbserial', 3) # sample thermocouple
-        self.heaterTC = heaterTC = PID('/dev/cu.usbserial', 4) # heater PID
+        self.sampleTC = sampleTC = PID('/dev/cu.usbserial', 1) # sample thermocouple
+        self.heaterTC = heaterTC = PID('/dev/cu.usbserial', 2) # heater PID
 
 
 
@@ -370,8 +370,7 @@ class InitialCheck:
         self.voltage = .1
 
 
-        self.measurement = 'ON'
-        self.updateGUI(stamp='Measurement Status', data=self.measurement)
+
         self.setupIV()
 
         self.Data = {}
@@ -385,10 +384,7 @@ class InitialCheck:
 
         self.create_plot()
 
-        self.measurement = 'OFF'
-        self.updateGUI(stamp='Measurement Status', data=self.measurement)
 
-        self.updateGUI(stamp='Status Bar', data='Ready')
     #end init
     #--------------------------------------------------------------------------
 
@@ -656,11 +652,11 @@ class TakeData:
             n = 0
             while abort_ID == 0:
                 n = n + 1
-                
+
                 self.take_PID_Data()
                 if (n % 5 == 0):
                     self.ongoing_resistivity_measurement()
-                    
+
                 #end if
                 print "measurement "+ self.measurement_indicator
                 if ( self.measurement_indicator == 'start' ):
@@ -1090,7 +1086,7 @@ class TakeData:
         self.updateGUI(stamp="Time R_B", data=self.t_B)
         self.updateGUI(stamp="R_B", data=self.r_B*1000)
         print "t_rB: %.2f s\trB: %.2f Ohm" % (self.t_B, self.r_B)
-        
+
     #end def
 
     #--------------------------------------------------------------------------
@@ -2511,7 +2507,7 @@ class ResistivityPanel(wx.Panel):
             xmin = 0
         else:
             xmin = float(self.xmin_control.manual_value())
-        if self.ymin_control.is_auto():      
+        if self.ymin_control.is_auto():
             ymin = 0
         else:
             ymin = float(self.ymin_control.manual_value())

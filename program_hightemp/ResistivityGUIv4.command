@@ -1,1 +1,1 @@
-python Google\ Drive/HT_resistivity_program/ResistivityGUIv4.py
+python Google\ Drive/resistivity_measurement/program_hightemp/ResistivityGUIv4.py
