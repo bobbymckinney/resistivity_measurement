@@ -45,7 +45,7 @@ import Resistivity_Processing_v3
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
 
-version = '4.0 (2015-05-11)'
+version = '5.0 (2015-08-30)'
 
 '''
 Global Variables:
@@ -54,19 +54,20 @@ Global Variables:
 # Naming a data file:
 dataFile = 'Data_Backup.csv'
 finaldataFile = 'Data.csv'
+statusFile = 'Status.csv'
+resistivityFile = 'Resistivity.csv'
 
 thickness = 0.1 #placeholder for sample thickness in cm
 
-current = .001 # (A) Current that is sourced by the k2400
+current = .01 # (A) Current that is sourced by the k2400
 APP_EXIT = 1 # id for File\Quit
 stability_threshold = 0.1/60 # change in PID temp must be less than this value for a set time in order to reach an equilibrium
 tolerance = 2 # Temperature must be within this temperature range of the PID setpoint in order to begin a measurement
-measurement_time = 300 # Time for a measurement
 measureList = []
 
 AbsoluteMaxLimit = 1000 # Restricts the user to an absolute max temperature
 maxLimit = 600 # Restricts the user to a max temperature, changes based on input temps
-maxCurrent = .01 # (A) Restricts the user to a max current
+maxCurrent = .04 # (A) Restricts the user to a max current
 
 abort_ID = 0 # Abort method
 
@@ -82,6 +83,8 @@ filePath = 'global file path'
 
 # placer for files to be created
 myfile = 'global file'
+rawfile = 'global file'
+processfile = 'global file'
 
 # Placers for the GUI plots:
 sampletemp_list = []
@@ -602,13 +605,20 @@ class TakeData:
     #--------------------------------------------------------------------------
     def __init__(self):
         global abort_ID
-        global current
-        global cycle
+        global k2700
+        global k2400
+        global k2182
+        global heaterTC
+        global sampleTC
+
         global tolerance
         global stability_threshold
-        global measurement_time
         global measureList
+        global current
+        global cycle
         global thickness
+
+        global timecalclist, tempcalclist, rAcalclist, rBcalclist
 
         self.k2400 = k2400
         self.k2700 = k2700
@@ -619,94 +629,99 @@ class TakeData:
         self.current = current
         self.tolerance = tolerance
         self.stability_threshold = stability_threshold
-        self.measurement_time = measurement_time
         self.cycle = cycle
         self.updateGUI(stamp="Cycle", data=self.cycle)
         self.thickness = thickness
 
         self.k2400.set_current(float(self.current))
 
-        self.recentPID = []
-        self.recentPIDtime=[]
-        self.stability = '-'
-
-        self.measurement = 'OFF'
-        self.updateGUI(stamp='Measurement', data=self.measurement)
-        self.measurement_timer = 0
-        self.measurement_indicator = 'none' # Indicates the start of a
-                                            # measurement
-        self.check_measurement_iterator = 0  # Iterator in order to check each
-                                             # step individually, only checks
-                                             # one step at a time.
-        self.measurement_number = 0 # number of measurements done at a particular temperature
-        self.measurement_time_left = '-'
-
         self.exception_ID = 0
-        self.heaterTC.set_setpoint(measureList[0]+self.tolerance)
-
-        self.updateGUI(stamp='Status Bar', data='Running')
 
         self.start = time.time()
+        #time initializations
+        self.ttS = 0
+        self.ttH = 0
 
+        self.delay = 1
+        self.tempdelay = 5
+
+        self.tol = 'NO'
+        self.stable = 'NO'
+        self.measurement = 'OFF'
+        self.updateGUI(stamp='Measurement', data=self.measurement)
+        self.updateGUI(stamp='Status Bar', data='Running')
+        print "start take data"
+        self.Tnum = 0
         try:
-            n = 0
             while abort_ID == 0:
-                n = n + 1
-
-                self.take_PID_Data()
-                if (n % 5 == 0):
-                    self.ongoing_resistivity_measurement()
-
-                #end if
-                print "measurement "+ self.measurement_indicator
-                if ( self.measurement_indicator == 'start' ):
-                    self.measurement='ON'
-                    self.updateGUI(stamp='Measurement', data=self.measurement)
-
-                elif (self.measurement_indicator == 'stop' and self.measurement_number > 1):
-                    self.measurement='OFF'
-                    self.updateGUI(stamp='Measurement', data=self.measurement)
-                    myfile.write('Stop Measurement,')
-                    self.measurement_indicator = 'none'
-                    self.measurement_number = 0
-                    self.measurement_timer = 0
-                    self.measurement_time_left = '-'
-                #end elif
-
-
-                #if we've reached equilibrium:
-                if ( self.measurement=='ON'):
-                    print "measurement ON"
-                    #if we came out of equilibrium:
-                    if (self.cycle=='Heating'):
-                        if (self.tol == 'NO' or self.stable == 'NO'):
-                            self.measurement = 'OFF'
-                            self.updateGUI(stamp='Measurement', data=self.measurement)
-                            myfile.write('Left Equilibrium,')
-                            print "Left Equilibrium"
-                        else:
-                            print "Resistivity measurement"
-                            myfile.write('\n')
-                            self.measurement_number += 1
-                            self.resistivity_measurement() # Resistance measurements
-                        #end if
+                for temp in measureList:
+                    print "Set temp tp %f" %(temp)
+                    if self.cycle == 'Heating':
+                        self.heaterTC.set_setpoint(temp+self.tolerance)
                     #end if
-                    elif (self.cycle=='Cooling'):
-                        if (self.tol=='NO'):
-                            self.measurement = 'OFF'
-                            self.updateGUI(stamp='Measurement', data=self.measurement)
-                            myfile.write('Left Equilibium')
-                            print "Left Equilibrium"
-                        else:
-                            print "Resistivity measurement"
-                            myfile.write('\n')
-                            self.measurement_number += 1
-                            self.resistivity_measurement() # Resistance measurements
+                    elif self.cycle == 'Cooling':
+                        if temp > 45:
+                            self.heaterTC.set_setpoint(temp - 30)
                         #end if
+                        else:
+                            self.heaterTC.set_setpoint(15)
+                        #end else
                     #end elif
 
-                    #end else
-                #end if
+                    timecalclist = []
+                    tempcalclist = []
+                    rAcalclist = []
+                    rBcalclist = []
+
+                    self.recentPID = []
+                    self.recentPIDtime=[]
+                    self.stability = '-'
+                    self.updateGUI(stamp="Stability", data=self.stability)
+                    self.pidset = float(self.heaterTC.get_setpoint())
+
+                    self.take_PID_Data()
+                    self.updateStats()
+
+                    n = 0
+                    while (self.tol != 'OK' or self.stable != 'OK'):
+                        n = n+1
+                        self.take_PID_Data()
+                        if n%5 == 0:
+                            self.updateStats()
+                        if abort_ID == 1: break
+                    # end while
+
+                    if abort_ID == 1: break
+                    # start measurement
+                    if (self.tol == 'OK' and self.stable == 'OK'):
+                        self.measurement = 'ON'
+                        self.updateGUI(stamp='Measurement', data=self.measurement)
+
+                        for i in range(20):
+                            self.data_measurement()
+                            self.write_data_to_file()
+                            if abort_ID == 1: break
+                        #end for
+
+                        if abort_ID == 1: break
+                        self.measurement = 'OFF'
+
+                        self.tol = 'NO'
+                        self.stable = 'NO'
+                        self.updateGUI(stamp='Measurement', data=self.measurement)
+                    #end if
+                    if abort_ID == 1: break
+                    self.process_data()
+
+                    #Check/Change cycle
+                    if cycle == 'Heating' and measureList[self.Tnum+1]<measureList[self.Tnum]:
+                        cycle == 'Cooling'
+                    #end if
+                    self.Tnum +=1
+
+                    if abort_ID == 1: break
+                #end for
+                abort_ID = 1
             #end while
         #end try
 
@@ -726,18 +741,12 @@ class TakeData:
         else:
             self.updateGUI(stamp='Status Bar', data='Finished, Ready')
         #end else
-        self.measurement = 'OFF'
-        self.updateGUI(stamp='Measurement', data=self.measurement)
+
+        self.heaterTC.set_setpoint(20)
+
         self.save_files()
 
-        self.heaterTC.stop()
-        self.heaterTC.set_setpoint(35)
-
-        self.k2400.turn_source_off()
-
-        wx.CallAfter(pub.sendMessage, 'Post Process')
         wx.CallAfter(pub.sendMessage, 'Enable Buttons')
-        wx.CallAfter(pub.sendMessage, 'Join Thread')
 
     #end init
 
@@ -768,10 +777,10 @@ class TakeData:
         print "t_sampletemp: %.2f s\tsampletemp: %s C\nt_heatertemp: %.2f s\theatertemp: %s C" % (self.ttS, self.tS, self.ttH, self.tH)
 
         #check stability of PID
-        if (len(self.recentPID)<20):
+        if (len(self.recentPID)<10):
             self.recentPID.append(self.tS)
             self.recentPIDtime.append(self.ttS)
-
+        #end if
         else:
             self.recentPID.pop(0)
             self.recentPIDtime.pop(0)
@@ -782,26 +791,24 @@ class TakeData:
             print "stability: %.4f C/min" % (self.stability*60)
             print "stability threshold: %.4f C/min" % (self.stability_threshold*60)
             self.updateGUI(stamp="Stability", data=self.stability*60)
-
-
-        self.check_status()
-        self.check_PID_setpoint()
-
-        self.safety_check()
-
+        #end else
         self.updateGUI(stamp="Time Heater Temp", data=self.ttH)
         self.updateGUI(stamp="Heater Temp", data=self.tH)
         self.updateGUI(stamp="Time Sample Temp", data=self.ttS)
         self.updateGUI(stamp="Sample Temp", data=self.tS)
         self.updateGUI(stamp="Heater SP", data=self.tHset)
 
+        self.safety_check()
+        self.check_status()
+    #end def
 
+    #--------------------------------------------------------------------------
+    def safety_check(self):
+        global maxLimit
+        global abort_ID
 
-        if ( self.measurement_time_left < 0 ):
-            self.updateGUI(stamp="Status Bar", data='-mea')
-        #end if
-        else:
-            self.updateGUI(stamp="Status Bar", data=str(self.measurement_time_left) + 'mea')
+        if float(self.tS) > maxLimit or float(self.tH) > maxLimit:
+            abort_ID = 1
     #end def
 
     #--------------------------------------------------------------------------
@@ -814,26 +821,18 @@ class TakeData:
     #end def
 
     #--------------------------------------------------------------------------
-    def safety_check(self):
-        global maxLimit
-        if float(self.tS) > maxLimit or float(self.tH) > maxLimit:
-            abort_ID = 1
-
-    #end def
-
-    #--------------------------------------------------------------------------
     def check_status(self):
-        if (self.cycle == 'Heating'):
-            current_measurement = measureList[self.check_measurement_iterator]
-            if (np.abs(self.tS-current_measurement) < self.tolerance):
+        global measureList
 
+        if (self.cycle == 'Heating'):
+            current_measurement = measureList[self.Tnum]
+            if (np.abs(self.tS-current_measurement) < self.tolerance):
                 self.tol = 'OK'
             #end if
-
             else:
                 self.tol = 'NO'
-
             #end else
+
             if (self.stability!='-'):
                 if (np.abs(self.stability) < self.stability_threshold):
                     self.stable = 'OK'
@@ -843,163 +842,29 @@ class TakeData:
             #end if
             else:
                 self.stable = 'NO'
-
             #end else
-
-
         #end if
-        elif (self.cycle == 'Cooling'):
-            current_measurement = measureList[self.check_measurement_iterator]
-            if (np.abs(self.tS-current_measurement) < self.tolerance):
 
+        elif (self.cycle == 'Cooling'):
+            current_measurement = measureList[self.dTnum]
+            if (np.abs(self.tS-current_measurement) < self.tolerance):
                 self.tol = 'OK'
             #end if
 
             else:
                 self.tol = 'NO'
-
-        print "cycle: %s\ntolerance: %s\nstable: %s\n" % (self.cycle, self.tol, self.stable)
             #end else
         #end elif
+
+        print "cycle: %s\ntolerance: %s\nstable: %s\n" % (self.cycle, self.tol, self.stable)
+
 
         self.updateGUI(stamp="Status Bar", data=[self.tol, self.stable])
     #end def
 
     #--------------------------------------------------------------------------
-    def check_PID_setpoint(self):
-        """ Function that requires that all conditions must be met to change
-            the setpoints.
-        """
-
-        # check_status already checks if we are within the equilibrium threshold
-        #   and the tolerance threshold
-
-        # if we have been within both thresholds for the set amount of equil_time:
-        if (self.cycle=='Heating'):
-            if (self.tol=='OK' and self.stable=='OK'):
-
-                n = self.check_measurement_iterator
-
-                if n < len(measureList)-1:
-                    self.check_step(measureList[n], measureList[n+1], max(measureList))
-                #end if
-
-                elif n == len(measureList)-1:
-                    self.check_step(measureList[n], None, max(measureList))
-                #end elif
-                print "measurement iterator: %.0f\n" % (float(n))
-            #end if
-        #end if
-
-        if (self.cycle=='Cooling'):
-
-            n = self.check_measurement_iterator
-
-            if n < len(measureList)-1:
-                self.check_step(measureList[n], measureList[n+1], max(measureList))
-            #end if
-
-            elif n == len(measureList)-1:
-                self.check_step(measureList[n], None, max(measureList))
-            #end elif
-            print "measurement iterator: %.0f\n" % (float(n))
-        #end if
-
-    #end def
-
-    #--------------------------------------------------------------------------
-    def check_step(self, step, nextStep, maxStep):
-        global abort_ID
-        if (self.cycle=='Heating'):
-            if (self.tol == 'OK' and self.stable=='OK'):
-
-                if self.measurement == 'OFF':
-                    self.measurement_indicator = 'start'
-                    self.measurement_timer = time.time()
-                #end if
-                self.measurement_time_left = int(self.measurement_time - ( time.time() - self.measurement_timer ))
-                print "measurement time left: %f" % float(self.measurement_time_left)
-
-
-
-                # if we reach the time for measurement to complete:
-                if ( self.measurement_time_left < 0 ):
-                    self.measurement_indicator = 'stop'
-
-
-                    # if we're on the last element of the list:
-                    if ( self.check_measurement_iterator == len(measureList)-1 ):
-                        abort_ID = 1
-                    #end if
-
-                    else:
-                        #change cycle if on maxStep
-                        if (step == maxStep):
-                            self.cycle = 'Cooling'
-                            cycle = self.cycle
-                            self.updateGUI(stamp="Cycle", data=self.cycle)
-                            self.stable = 'N/A'
-                            print "change cycle"
-                        #end if
-
-
-                        if (self.cycle == 'Heating'):
-                            self.heaterTC.set_setpoint(nextStep+self.tolerance)
-                        #end if
-                        elif (self.cycle == 'Cooling'):
-                            if (nextStep > 50):
-                                self.heaterTC.set_setpoint(nextStep-30)
-                            #end if
-                            else:
-                                self.heaterTC.set_setpoint(15)
-                            #end else
-                        #end elif
-
-                        self.check_measurement_iterator = self.check_measurement_iterator + 1
-                    #end else
-
-                #end if
-
-            #end if
-        #end if
-        if (self.cycle=='Cooling'):
-            if (self.tol == 'OK' and self.measurement =='OFF'):
-                self.measurement_indicator = 'start'
-
-            #end if
-
-            elif (self.tol=='NO' and self.measurement =='ON'):
-                self.measurement_indicator = 'stop'
-
-
-                # if we're on the last element of the list:
-                if ( self.check_measurement_iterator == len(measureList)-1 ):
-                    abort_ID = 1
-                #end if
-
-                #end elif
-                else:
-                    if (nextStep > 50):
-                        self.heaterTC.set_setpoint(nextStep-30)
-                    #end if
-                    else:
-                        self.heaterTC.set_setpoint(15)
-                    #end else
-
-
-                    self.check_measurement_iterator = self.check_measurement_iterator + 1
-                #end else
-
-            #end elif
-
-        #end if
-
-    #end def
-
-    #--------------------------------------------------------------------------
-    def ongoing_resistivity_measurement(self):
-        self.delay = 2.5 # time for the keithley to take a steady measurement
-
+    def updateStats(self):
+        print('update all stats\n')
         # short the matrix card
         self.k2700.closeChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
@@ -1087,10 +952,90 @@ class TakeData:
         self.updateGUI(stamp="R_B", data=self.r_B*1000)
         print "t_rB: %.2f s\trB: %.2f Ohm" % (self.t_B, self.r_B)
 
+        self.resistivity = self.resistivitycalc([self.r_A],[self.r_B])
+        print "resistivity: %f" % (self.resistivity*1000)
+        self.updateGUI(stamp = "Time Resistivity", data = self.t_B)
+        self.updateGUI(stamp = "Resistivity", data = self.resistivity*1000)
+
+        global rawfile
+        print('\nWrite status to file\n')
+        rawfile.write('%.1f,'%(self.t_B))
+        rawfile.write('%.4f',%(self.thickness))
+        rawfile.write('%.2f,%.2f,%.2f,' %(self.tS,self.tH,self.tHset))
+        rafile.write('%s',%(self.cycle))
+        rawfile.write('%.2f,%.2f,'%(self.r_A*1000,self.r_B*1000))
+        rawfile.write('%.3f\n'%(self.resistivity))
     #end def
 
     #--------------------------------------------------------------------------
-    def resistivity_measurement(self):
+    def delta_method(self):
+        print('Delta Method')
+        t1 = time.time() - self.start
+        # delta method:
+        # positive V1:
+        self.k2400.turn_source_on()
+        self.k2400.set_current(float(self.current))
+        self.updateGUI(stamp="Current Status", data=float(self.current)*1000)
+        time.sleep(self.delay)
+        v1p = float( self.k2182.fetch() )
+
+        # negative V:
+        self.k2400.set_current(-1*float(self.current))
+        self.updateGUI(stamp="Current Status", data=-1*float(self.current)*1000)
+        time.sleep(self.delay)
+        vn = float( self.k2182.fetch() )
+
+        t2 = time.time() - self.start
+
+        # positive V2:
+        self.k2400.set_current(float(self.current))
+        self.updateGUI(stamp="Current Status", data=float(self.current)*1000)
+        time.sleep(self.delay)
+        v2p = float( self.k2182.fetch() )
+
+        self.k2400.turn_source_off()
+        self.updateGUI(stamp="Current Status", data=0)
+
+        t3 = time.time() - self.start
+
+        print 'Delta Method'
+        print 'i: %f Amps' % float(self.current)
+        print "v: %f V, %f V, %f V" % (v1p, vn, v2p)
+
+        r = (v1p + v2p - 2*vn)/(4*float(self.current))
+
+        avgt = (t3 + t2 + t1)/3
+
+        return r, avgt
+    #end def
+
+    #--------------------------------------------------------------------------
+    def resistivitycalc(self,Alist,Blist):
+        global thickness
+        delta = 0.0005 # error limit (0.05%)
+        lim = 1
+        rA = np.average(Alist)
+        rB = np.average(Blist)
+
+        z1 = (2*np.log(2))/(np.pi*(rA + rB))
+
+        # Algorithm taken from http://www.nist.gov/pml/div683/hall_algorithm.cfm
+        while (lim > delta):
+            y = 1/np.exp(np.pi*z1*rA) + 1/np.exp(np.pi*z1*rB)
+
+            z2 = z1 - (1/np.pi)*((1-y)/(rA/np.exp(np.pi*z1*rA) + rB/np.exp(np.pi*z1*rB)))
+
+            lim = abs(z2 - z1)/z2
+
+            z1 = z2
+        #end while
+
+        rho = '%.2f'%(1/z1*float(thickness))
+        return rho
+    #end def
+
+    #--------------------------------------------------------------------------
+    def data_measurement(self):
 
         self.delay = 2.5 # time for the keithley to take a steady measurement
 
@@ -1185,65 +1130,31 @@ class TakeData:
         self.updateGUI(stamp="R_B", data=self.r_B*1000)
         print "t_rB: %.2f s\trB: %.2f Ohm" % (self.t_B, self.r_B)
 
-
         temp3 = float(self.sampleTC.get_pv())
 
         self.avgTemp = (temp1 + temp2 + temp3)/3
-
-        self.all_time = (self.t_A+self.t_B)/2
-
-        self.resistances = (self.t_1234, self.r_1234, self.t_3412, self.r_1324, self.t_1324, self.r_1324, self.t_2413, self.r_2413)
-
-        self.write_data_to_file()
-
-        #self.updateGUI(stamp='Resistance Raw', data=[t_1234, r_1234, t_3412, r_1324, t_1324, r_1324, t_2413, r_2413])
-        #self.updateGUI(stamp='Resistance Processed', data=[self.r_A, self.r_B, all_time])
-
-
-
     #end def
 
     #--------------------------------------------------------------------------
-    def delta_method(self):
-        print('Delta Method')
-        t1 = time.time() - self.start
-        # delta method:
-        # positive V1:
-        self.k2400.turn_source_on()
-        self.k2400.set_current(float(self.current))
-        self.updateGUI(stamp="Current Status", data=float(self.current)*1000)
-        time.sleep(self.delay)
-        v1p = float( self.k2182.fetch() )
+    def write_data_to_file(self):
+        global timecalclist, tempcalclist, rAcalclist, rBcalclist
+        global myfile
 
-        # negative V:
-        self.k2400.set_current(-1*float(self.current))
-        self.updateGUI(stamp="Current Status", data=-1*float(self.current)*1000)
-        time.sleep(self.delay)
-        vn = float( self.k2182.fetch() )
+        print('\nWrite data to file\n')
+        time = (self.t_1234 + self.t_3412 + self.1324 + self.2413)/4
+        temp = self.avgTemp
+        thickness = self.thickness
+        rA = self.r_A
+        rB = self.r_B
+        resistivity = self.resistivitycalc([rA],[rB])
+        myfile.write('%f,%.2f,%.4f,' %(time,temp,thickness))
+        myfile.write('%.3f,%.3f,' % (rA*1000, rB*1000) )
+        myfile.write('%.3f\n' % (resistivity))
 
-        t2 = time.time() - self.start
-
-        # positive V2:
-        self.k2400.set_current(float(self.current))
-        self.updateGUI(stamp="Current Status", data=float(self.current)*1000)
-        time.sleep(self.delay)
-        v2p = float( self.k2182.fetch() )
-
-        self.k2400.turn_source_off()
-        self.updateGUI(stamp="Current Status", data=0)
-
-        t3 = time.time() - self.start
-
-        print 'Delta Method'
-        print 'i: %f Amps' % float(self.current)
-        print "v: %f V, %f V, %f V" % (v1p, vn, v2p)
-
-        r = (v1p + v2p - 2*vn)/(4*float(self.current))
-
-        avgt = (t3 + t2 + t1)/3
-
-        return r, avgt
-
+        timecalclist.append(time)
+        tempcalclist.append(temp)
+        rAcalclist.append(rA)
+        rBcalclist.append(rB)
     #end def
 
     #--------------------------------------------------------------------------
@@ -1254,22 +1165,20 @@ class TakeData:
         """
         time.sleep(0.1)
         wx.CallAfter(pub.sendMessage, stamp, msg=data)
-
     #end def
 
     #--------------------------------------------------------------------------
-    def write_data_to_file(self):
-        print('Write data to file')
-        myfile.write('%.2f,%.1f,' % (self.all_time, self.avgTemp) )
-        myfile.write('%.2f,%f,%.2f,%f,%.2f,%f,%.2f,%f,' % self.resistances)
-        myfile.write('%f,%f,' % (self.r_A, self.r_B) )
-        myfile.write('%f,'%(self.thickness))
+    def process_data(self):
+        global timecalclist, tempcalclist, rAcalclist, rBcalclist
+        global processfile
 
-        if self.measurement_indicator == 'start':
-            measured_temp = measureList[self.check_measurement_iterator]
-            myfile.write('Start Measurement,%d' % measured_temp)
-            self.measurement_indicator = 'none'
+        time = np.average(timecalclist)
+        thickness = self.thickness
+        temp = np.average(tempcalclist)
 
+        resistivity = self.resistivitycalc(rAcalclist,rBcalclist)
+
+        processfile.write('%.1f,%.2f,%.3f\n'%(time,temp,resistivity*1000))
     #end def
 
     #--------------------------------------------------------------------------
@@ -1283,19 +1192,23 @@ class TakeData:
         global dataFile
         global finaldataFile
         global myfile
+        global rawfile
+        global processfile
 
         stop = time.time()
         end = datetime.now() # End time
         totalTime = stop - self.start # Elapsed Measurement Time (seconds)
+        endStr = 'end time: %s \nelapsed measurement time: %s seconds \n \n' % (str(end), str(totalTime))
 
         myfile.close() # Close the file
+        rawfile.close()
+        processfile.close()
 
         myfile = open(dataFile, 'r') # Opens the file for Reading
         contents = myfile.readlines() # Reads the lines of the file into python set
         myfile.close()
 
         # Adds elapsed measurement time to the read file list
-        endStr = 'End Time: %s \nElapsed Measurement Time: %s Seconds \n \n' % (str(end), str(totalTime))
         contents.insert(1, endStr) # Specify which line and what value to insert
         # NOTE: First line is line 0
 
@@ -1306,10 +1219,7 @@ class TakeData:
         myfinalfile.close()
 
         # Save the GUI plots
-        global save_plots_ID
-        save_plots_ID = 1
         self.updateGUI(stamp='Save_All', data='Save')
-
     #end def
 
 #end class
@@ -1423,7 +1333,6 @@ class UserPanel(wx.Panel):
 
         self.create_sizer() # Set Sizer for panel
 
-        pub.subscribe(self.post_process_data, "Post Process")
         pub.subscribe(self.enable_buttons, "Enable Buttons")
 
     #end init
@@ -1511,46 +1420,37 @@ class UserPanel(wx.Panel):
                 self.name_folder()
 
                 if self.run_check == wx.ID_OK:
-
-
-
-                    file = dataFile # creates a data file
                     myfile = open(dataFile, 'w') # opens file for writing/overwriting
+                    rawfile = open(statusFile,'w')
+                    processfile = open(resistivityFile,'w')
                     begin = datetime.now() # Current date and time
                     myfile.write('Start Time: ' + str(begin) + '\n')
+                    rawfile.write('Start Time: ' + str(begin) + '\n')
+                    processfile.write('Start Time: ' + str(begin) + '\n')
 
-                    resistances = 't_1234,r_1234,t_3412,r_3412,t_1324,r_1324,t_2413,r_2413'
-                    headers = ( 'time (s),Temperature (C),%s,' % resistances +
-                                'r_A (mOhm),r_B (mOhm),' + 'thickness (cm)' +
-                                'Measurement Start/Stop,Measurement Temp' )
+                    dataheaders = 'time (s), temp (C), thickness (cm), R_A (mOhm), R_B (mOhm), resistivity (mOhm*cm)\n'
+                    myfile.write(dataheaders)
 
-                    myfile.write(headers)
-                    myfile.write('\n')
+                    rawheaders = 'time (s), thickness (cm), sampletemp (C), heatertemp (C), heatersetpoint (C), cycle, R_A (mOhm), R_B (mOhm), resistivity (mOhm*cm)\n'
+                    rawfile.write(rawheaders)
+
+                    processheaders = 'time (s), temp (C),resistivity (mOhm*cm)\n'
+                    processfile.write(processheaders)
 
                     abort_ID = 0
 
-                    # Global variables:
-
-                    print "current: %.4f\nstability threshold: %.4f\ntolerance: %.1f\nmeasurement time: %.1f\n" %(current, stability_threshold, tolerance, measurement_time)
-
-                    # Placers for the GUI plots:
-
-                    sampletemp_list = []
-                    tsampletemp_list = []
-                    heatertemp_list = []
-                    theatertemp_list = []
-                    rho_list = []
-                    t_list = []
-
                     #start the threading process
-                    Setup()
                     thread = ProcessThreadRun()
 
-                    self.btn_run.Disable()
+                    self.btn_osc.Disable()
+                    self.btn_tol.Disable()
+                    self.btn_stability_threshold.Disable()
                     self.btn_new.Disable()
                     self.btn_ren.Disable()
                     self.btn_dlt.Disable()
                     self.btn_clr.Disable()
+                    self.btn_check.Disable()
+                    self.btn_run.Disable()
                     self.btn_stop.Enable()
 
                 #end if
@@ -2108,12 +2008,13 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnTime, "Time R_A")
         pub.subscribe(self.OnTime, "Time Heater Temp")
         pub.subscribe(self.OnTime, "Time Sample Temp")
-
+        pub.subscribe(self.OnTime, "Time Resistivity")
 
         pub.subscribe(self.OnThickness, "Sample Thickness")
 
         pub.subscribe(self.OnR_A, "R_A")
         pub.subscribe(self.OnR_B, "R_B")
+        pub.subscribe(self.OnResistivity, "Resistivity")
 
         pub.subscribe(self.OnHeaterSP, "Heater SP")
         pub.subscribe(self.OnHeaterTemp, "Heater Temp")
@@ -2152,7 +2053,6 @@ class StatusPanel(wx.Panel):
     #--------------------------------------------------------------------------
     def OnR_B(self, msg):
         self.rB = '%.2f'%(float(msg))
-        self.instant_resistivity()
         self.update_values()
     #end def
 
@@ -2226,34 +2126,11 @@ class StatusPanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def instant_resistivity(self):
-        global thickness
-        delta = 0.0005 # error limit (0.05%)
-        lim = 1
-        rA = float(self.rA)/1000
-        rB = float(self.rB)/1000
-
-        z1 = (2*np.log(2))/(np.pi*(rA + rB))
-
-
-
-        # Algorithm taken from http://www.nist.gov/pml/div683/hall_algorithm.cfm
-        while (lim > delta):
-            y = 1/np.exp(np.pi*z1*rA) + 1/np.exp(np.pi*z1*rB)
-
-            z2 = z1 - (1/np.pi)*((1-y)/(rA/np.exp(np.pi*z1*rA) + rB/np.exp(np.pi*z1*rB)))
-
-            lim = abs(z2 - z1)/z2
-
-            z1 = z2
-
-        #end while
-        self.rho = '%.2f'%(1/z1*float(thickness)*1000)
-
-        self.updateGUI(stamp="Time Rho", data=self.time)
-        self.updateGUI(stamp="Rho", data=self.rho)
-
+    def OnResistivity(self,msg):
+        self.rho = '%.2f'%(float(msg))
+        self.update_values()
     #end def
+
     #--------------------------------------------------------------------------
     def create_title(self, name):
         self.titlePanel = wx.Panel(self, -1)
@@ -2424,8 +2301,8 @@ class ResistivityPanel(wx.Panel):
         self.create_control_panel()
         self.create_sizer()
 
-        pub.subscribe(self.OnRho, "Rho")
-        pub.subscribe(self.OnRhoTime, "Time Rho")
+        pub.subscribe(self.OnResistivity, "Resistivity")
+        pub.subscribe(self.OnResistivityTime, "Time Resistivity")
 
         # For saving the plots at the end of data acquisition:
         pub.subscribe(self.save_plot, "Save_All")
@@ -2465,14 +2342,14 @@ class ResistivityPanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def OnRho(self, msg):
+    def OnResistivity(self, msg):
         self.rho = float(msg)
         rho_list.append(self.rho)
         t_list.append(self.t)
     #end def
 
     #--------------------------------------------------------------------------
-    def OnRhoTime(self, msg):
+    def OnResistivityTime(self, msg):
         self.t = float(msg)
     #end def
 
