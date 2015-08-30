@@ -64,6 +64,7 @@ APP_EXIT = 1 # id for File\Quit
 stability_threshold = 0.1/60 # change in PID temp must be less than this value for a set time in order to reach an equilibrium
 tolerance = 2 # Temperature must be within this temperature range of the PID setpoint in order to begin a measurement
 measureList = []
+measurement_number = 20
 
 AbsoluteMaxLimit = 1000 # Restricts the user to an absolute max temperature
 maxLimit = 600 # Restricts the user to a max temperature, changes based on input temps
@@ -614,6 +615,7 @@ class TakeData:
         global tolerance
         global stability_threshold
         global measureList
+        global measurement_number
         global current
         global cycle
         global thickness
@@ -697,7 +699,7 @@ class TakeData:
                         self.measurement = 'ON'
                         self.updateGUI(stamp='Measurement', data=self.measurement)
 
-                        for i in range(20):
+                        for i in range(measurement_number):
                             self.data_measurement()
                             self.write_data_to_file()
                             if abort_ID == 1: break
@@ -1300,13 +1302,13 @@ class UserPanel(wx.Panel):
         global current
         global thickness
         global stability_threshold
-        global measurement_time
+        global measurement_number
         global tolerance
 
         self.current = current*1000
         self.tolerance = tolerance
         self.stability_threshold = stability_threshold*60
-        self.measurement_time = measurement_time/60
+        self.measurement_number = measurement_number/60
         self.thickness = thickness
 
         self.create_title("User Panel") # Title
@@ -1318,7 +1320,7 @@ class UserPanel(wx.Panel):
         self.pid_tolerance_control()
         self.stability_threshold_control()
         self.thickness_control()
-        self.measurement_time_control()
+        self.measurement_number_control()
 
         self.measurementListBox()
         self.maxCurrent_label()
@@ -1405,7 +1407,7 @@ class UserPanel(wx.Panel):
         global r_A_list, t_A_list, r_B_list, t_B_list
         global r_1234_list, r_3412_list, r_1324_list, r_2413_list
         global t_1234_list, t_3412_list, t_1324_list, t_2413_list
-        global current, stability_threshold, tolerance, measurement_time
+        global current, stability_threshold, tolerance, measurement_number
         global abort_ID
 
         measureList = [None]*self.listbox.GetCount()
@@ -1732,44 +1734,44 @@ class UserPanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def measurement_time_control(self):
-        self.measurement_time_Panel = wx.Panel(self, -1)
+    def measurement_number_control(self):
+        self.measurement_number_Panel = wx.Panel(self, -1)
         hbox = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.label_measurement_time = wx.StaticText(self,
-                                            label="Measurement Time:"
+        self.label_measurement_number = wx.StaticText(self,
+                                            label="Measurement Number:"
                                             )
-        self.label_measurement_time.SetFont(self.font2)
-        self.text_measurement_time = text_measurement_time = wx.StaticText(self.measurement_time_Panel, label=str(self.measurement_time) + ' min')
-        text_measurement_time.SetFont(self.font2)
-        self.edit_measurement_time = edit_measurement_time = wx.TextCtrl(self.measurement_time_Panel, size=(40, -1))
-        self.btn_measurement_time = btn_measurement_time = wx.Button(self.measurement_time_Panel, label="Save", size=(40, -1))
-        text_guide = wx.StaticText(self.measurement_time_Panel, label=('How long each measurement \nwill take in minutes.'
+        self.label_measurement_number.SetFont(self.font2)
+        self.text_measurement_number = text_measurement_number = wx.StaticText(self.measurement_number_Panel, label=str(self.measurement_number))
+        text_measurement_number.SetFont(self.font2)
+        self.edit_measurement_number = edit_measurement_number = wx.TextCtrl(self.measurement_number_Panel, size=(40, -1))
+        self.btn_measurement_number = btn_measurement_number = wx.Button(self.measurement_number_Panel, label="Save", size=(40, -1))
+        text_guide = wx.StaticText(self.measurement_number_Panel, label=('How many measurements \nto take at each temp.'
                                                                       )
                                    )
 
-        btn_measurement_time.Bind(wx.EVT_BUTTON, self.save_measurement_time)
+        btn_measurement_number.Bind(wx.EVT_BUTTON, self.save_measurement_number)
 
         hbox.Add((0, -1))
         #hbox.Add(self.label_equil_threshold, 0 , wx.LEFT, 5)
-        hbox.Add(text_measurement_time, 0, wx.LEFT, 5)
-        hbox.Add(edit_measurement_time, 0, wx.LEFT, 32)
-        hbox.Add(btn_measurement_time, 0, wx.LEFT, 5)
+        hbox.Add(text_measurement_number, 0, wx.LEFT, 5)
+        hbox.Add(edit_measurement_number, 0, wx.LEFT, 32)
+        hbox.Add(btn_measurement_number, 0, wx.LEFT, 5)
         hbox.Add(text_guide, 0, wx.LEFT, 5)
 
-        self.measurement_time_Panel.SetSizer(hbox)
+        self.measurement_number_Panel.SetSizer(hbox)
 
     #end def
 
     #--------------------------------------------------------------------------
-    def save_measurement_time(self, e):
-        global measurement_time
+    def save_measurement_number(self, e):
+        global measurement_number
 
         try:
-            val = self.edit_measurement_time.GetValue()
-            self.measurement_time = float(val)
-            self.text_measurement_time.SetLabel(val + ' min')
-            measurement_time = self.measurement_time*60
+            val = self.edit_measurement_number.GetValue()
+            self.measurement_number = float(val)
+            self.text_measurement_number.SetLabel(val)
+            measurement_number = int(self.measurement_number)
 
         except ValueError:
             wx.MessageBox("Invalid input. Must be a number.", "Error")
@@ -1930,8 +1932,8 @@ class UserPanel(wx.Panel):
         sizer.Add(self.stability_threshold_Panel, (3, 2))
         sizer.Add(self.label_thickness, (4, 1))
         sizer.Add(self.thickness_Panel, (4, 2))
-        sizer.Add(self.label_measurement_time, (5,1))
-        sizer.Add(self.measurement_time_Panel, (5, 2))
+        sizer.Add(self.label_measurement_number, (5,1))
+        sizer.Add(self.measurement_number_Panel, (5, 2))
         sizer.Add(self.label_measurements, (6,1))
         sizer.Add(self.measurementPanel, (6, 2))
         sizer.Add(self.maxCurrent_Panel, (7, 1), span=(1,2))
@@ -2705,10 +2707,10 @@ class Frame(wx.Frame):
         self.width5 = self.width3
 
         # Measurement Time:
-        measurement_time_text = wx.StaticText(self.statusbar, -1, "Time Until Measurement Complete:")
-        self.width6 = measurement_time_text.GetRect().width + self.space_between
+        measurement_number_text = wx.StaticText(self.statusbar, -1, "Time Until Measurement Complete:")
+        self.width6 = measurement_number_text.GetRect().width + self.space_between
 
-        self.indicator_measurement_time = wx.StaticText(self.statusbar, -1, "-")
+        self.indicator_measurement_number = wx.StaticText(self.statusbar, -1, "-")
         self.width7 = 40
 
         # Placer 2:
@@ -2740,8 +2742,8 @@ class Frame(wx.Frame):
         self.statusbar.AddWidget(self.indicator_stable, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
 
         # Measurement Time:
-        self.statusbar.AddWidget(measurement_time_text, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
-        self.statusbar.AddWidget(self.indicator_measurement_time, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
+        self.statusbar.AddWidget(measurement_number_text, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
+        self.statusbar.AddWidget(self.indicator_measurement_number, ESB.ESB_ALIGN_CENTER_HORIZONTAL, ESB.ESB_ALIGN_CENTER_VERTICAL)
 
         # Placer 2
         self.statusbar.AddWidget(placer2)
@@ -2768,7 +2770,7 @@ class Frame(wx.Frame):
 
         # Measurement Timer:
         elif string[-3:] == 'mea':
-            self.indicator_measurement_time.SetLabel(string[:-3] + ' (s)')
+            self.indicator_measurement_number.SetLabel(string[:-3] + ' (s)')
 
         #end elif
 
