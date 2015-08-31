@@ -38,9 +38,6 @@ from logging_utils import setup_logging_to_file, log_exception
 # for a fancy status bar:
 import EnhancedStatusBar as ESB
 
-# For finding sheet resistance:
-import Resistivity_Processing_v3
-
 #==============================================================================
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
@@ -1444,9 +1441,11 @@ class UserPanel(wx.Panel):
                     #start the threading process
                     thread = ProcessThreadRun()
 
-                    self.btn_osc.Disable()
                     self.btn_tol.Disable()
                     self.btn_stability_threshold.Disable()
+                    self.btn_current.Disable()
+                    self.btn_thickness.Disable()
+                    self.btn_measurement_number.Disable()
                     self.btn_new.Disable()
                     self.btn_ren.Disable()
                     self.btn_dlt.Disable()
@@ -1946,22 +1945,19 @@ class UserPanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def post_process_data(self):
-        inFile = filePath + '/Data.csv'
-        outFile = filePath + '/Resistivity.csv'
-        Resistivity_Processing_v3.output_file(inFile, outFile)
-   #end def
-
     def enable_buttons(self):
-        self.btn_check.Enable()
-        self.btn_run.Enable()
+        self.btn_tol.Enable()
+        self.btn_stability_threshold.Enable()
+        self.btn_current.Enable()
+        self.btn_thickness.Enable()
+        self.btn_measurement_number.Enable()
         self.btn_new.Enable()
         self.btn_ren.Enable()
         self.btn_dlt.Enable()
         self.btn_clr.Enable()
-
+        self.btn_check.Enable()
+        self.btn_run.Enable()
         self.btn_stop.Disable()
-
     #end def
 
 #end class
