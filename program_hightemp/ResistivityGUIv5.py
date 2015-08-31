@@ -92,6 +92,11 @@ theatertemp_list = []
 rho_list = []
 t_list = []
 
+timecalclist = []
+tempcalclist = []
+rAcalclist = []
+rBcalclist = []
+
 cycle = 'Heating'
 
 #ResourceManager for visa instrument control
@@ -713,8 +718,9 @@ class TakeData:
                     self.process_data()
 
                     #Check/Change cycle
-                    if cycle == 'Heating' and measureList[self.Tnum+1]<measureList[self.Tnum]:
-                        cycle == 'Cooling'
+                    if self.cycle == 'Heating' and measureList[self.Tnum+1]<measureList[self.Tnum]:
+                        self.cycle == 'Cooling'
+                        self.updateGUI(stamp='Cycle', data=self.cycle)
                     #end if
                     self.Tnum +=1
 
@@ -878,10 +884,8 @@ class TakeData:
         self.r_1234 = abs(self.r_1234)
         self.k2700.closeChannels('125, 127, 128')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1234", data=self.t_1234)
-        self.updateGUI(stamp="R_1234", data=self.r_1234*1000)
         print "t_r1234: %.2f s\tr1234: %.2f Ohm" % (self.t_1234, self.r_1234)
-
+        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # r_34,12
@@ -896,10 +900,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('118')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_3412", data=self.t_3412)
-        self.updateGUI(stamp="R_3412", data=self.r_3412*1000)
         print "t_r3412: %.2f s\tr3412: %.2f Ohm" % (self.t_3412, self.r_3412)
-
+        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # Calculate r_A
@@ -922,10 +924,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('119')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1324", data=self.t_1324)
-        self.updateGUI(stamp="R_1324", data=self.r_1324*1000)
         print "t_r1324: %.2f s\tr1324: %.2f Ohm" % (self.t_1324, self.r_1324)
-
+        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # r_24,13
@@ -940,10 +940,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_2413", data=self.t_2413)
-        self.updateGUI(stamp="R_2413", data=self.r_2413*1000)
         print "t_r2413: %.2f s\tr2413: %.2f Ohm" % (self.t_2413, self.r_2413)
-
+        if abort_ID == 1: return
         # Calculate r_B
         self.r_B = (self.r_1324 + self.r_2413)/2
         self.t_B = time.time()-self.start
@@ -1029,7 +1027,7 @@ class TakeData:
             z1 = z2
         #end while
 
-        rho = '%.2f'%(1/z1*float(thickness))
+        rho = 1/z1*float(thickness)
         return rho
     #end def
 
@@ -1054,10 +1052,8 @@ class TakeData:
         self.r_1234 = abs(self.r_1234)
         self.k2700.closeChannels('125, 127, 128')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1234", data=self.t_1234)
-        self.updateGUI(stamp="R_1234", data=self.r_1234*1000)
         print "t_r1234: %.2f s\tr1234: %.2f Ohm" % (self.t_1234, self.r_1234)
-
+        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # r_34,12
@@ -1072,10 +1068,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('118')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_3412", data=self.t_3412)
-        self.updateGUI(stamp="R_3412", data=self.r_3412*1000)
         print "t_r3412: %.2f s\tr3412: %.2f Ohm" % (self.t_3412, self.r_3412)
-
+        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # Calculate r_A
@@ -1100,10 +1094,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('119')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1324", data=self.t_1324)
-        self.updateGUI(stamp="R_1324", data=self.r_1324*1000)
         print "t_r1324: %.2f s\tr1324: %.2f Ohm" % (self.t_1324, self.r_1324)
-
+        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # r_24,13
@@ -1118,10 +1110,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_2413", data=self.t_2413)
-        self.updateGUI(stamp="R_2413", data=self.r_2413*1000)
         print "t_r2413: %.2f s\tr2413: %.2f Ohm" % (self.t_2413, self.r_2413)
-
+        if abort_ID == 1: return
         # Calculate r_B
         self.r_B = (self.r_1324 + self.r_2413)/2
         self.t_B = time.time()-self.start
@@ -1305,7 +1295,7 @@ class UserPanel(wx.Panel):
         self.current = current*1000
         self.tolerance = tolerance
         self.stability_threshold = stability_threshold*60
-        self.measurement_number = measurement_number/60
+        self.measurement_number = measurement_number
         self.thickness = thickness
 
         self.create_title("User Panel") # Title
@@ -1399,12 +1389,11 @@ class UserPanel(wx.Panel):
         global dataFile
         global finaldataFile
         global myfile
+        global rawfile
+        global processfile
+        global statusFile
+        global resistivityFile
         global measureList
-        global sampletemp_list, tsampletemp_list, heatertemp_list, theatertemp_list
-        global r_A_list, t_A_list, r_B_list, t_B_list
-        global r_1234_list, r_3412_list, r_1324_list, r_2413_list
-        global t_1234_list, t_3412_list, t_1324_list, t_2413_list
-        global current, stability_threshold, tolerance, measurement_number
         global abort_ID
 
         measureList = [None]*self.listbox.GetCount()
