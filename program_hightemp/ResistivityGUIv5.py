@@ -633,7 +633,7 @@ class TakeData:
         self.current = current
         self.tolerance = tolerance
         self.stability_threshold = stability_threshold
-        self.cycle = cycle
+        self.cycle = 'Heating'
         self.updateGUI(stamp="Cycle", data=self.cycle)
         self.thickness = thickness
 
@@ -655,7 +655,7 @@ class TakeData:
         self.updateGUI(stamp='Measurement', data=self.measurement)
         self.updateGUI(stamp='Status Bar', data='Running')
         print "start take data"
-        self.Tnum = 0
+        tempnumber = 0
         try:
             while abort_ID == 0:
                 for temp in measureList:
@@ -718,11 +718,11 @@ class TakeData:
                     self.process_data()
 
                     #Check/Change cycle
-                    if self.cycle == 'Heating' and measureList[self.Tnum+1]<measureList[self.Tnum]:
-                        self.cycle == 'Cooling'
+                    if (self.cycle == 'Heating' and (measureList[tempnumber+1] < temp])):
+                        self.cycle = 'Cooling'
                         self.updateGUI(stamp='Cycle', data=self.cycle)
                     #end if
-                    self.Tnum +=1
+                    tempnumber = tempnumber + 1
 
                     if abort_ID == 1: break
                 #end for
@@ -782,7 +782,7 @@ class TakeData:
         print "t_sampletemp: %.2f s\tsampletemp: %s C\nt_heatertemp: %.2f s\theatertemp: %s C" % (self.ttS, self.tS, self.ttH, self.tH)
 
         #check stability of PID
-        if (len(self.recentPID)<10):
+        if (len(self.recentPID)<4):
             self.recentPID.append(self.tS)
             self.recentPIDtime.append(self.ttS)
         #end if
@@ -957,9 +957,9 @@ class TakeData:
         global rawfile
         print('\nWrite status to file\n')
         rawfile.write('%.1f,'%(self.t_B))
-        rawfile.write('%.4f',%(self.thickness))
+        rawfile.write('%.4f'%(self.thickness))
         rawfile.write('%.2f,%.2f,%.2f,' %(self.tS,self.tH,self.tHset))
-        rafile.write('%s',%(self.cycle))
+        rawfile.write('%s'%(self.cycle))
         rawfile.write('%.2f,%.2f,'%(self.r_A*1000,self.r_B*1000))
         rawfile.write('%.3f\n'%(self.resistivity))
     #end def
@@ -1130,7 +1130,7 @@ class TakeData:
         global myfile
 
         print('\nWrite data to file\n')
-        time = (self.t_1234 + self.t_3412 + self.1324 + self.2413)/4
+        time = (self.t_1234 + self.t_3412 + self.t_1324 + self.t_2413)/4
         temp = self.avgTemp
         thickness = self.thickness
         rA = self.r_A
@@ -1427,10 +1427,7 @@ class UserPanel(wx.Panel):
 
                     abort_ID = 0
 
-                    #start the threading process
-                    thread = ProcessThreadRun()
-
-                    self.btn_tol.Disable()
+                    self.btn_pid_tolerance.Disable()
                     self.btn_stability_threshold.Disable()
                     self.btn_current.Disable()
                     self.btn_thickness.Disable()
@@ -1442,6 +1439,9 @@ class UserPanel(wx.Panel):
                     self.btn_check.Disable()
                     self.btn_run.Disable()
                     self.btn_stop.Enable()
+
+                    #start the threading process
+                    thread = ProcessThreadRun()
 
                 #end if
 
@@ -1935,7 +1935,7 @@ class UserPanel(wx.Panel):
 
     #--------------------------------------------------------------------------
     def enable_buttons(self):
-        self.btn_tol.Enable()
+        self.btn_pid_tolerance.Enable()
         self.btn_stability_threshold.Enable()
         self.btn_current.Enable()
         self.btn_thickness.Enable()
@@ -2063,7 +2063,10 @@ class StatusPanel(wx.Panel):
 
     #--------------------------------------------------------------------------
     def OnStability(self, msg):
-        self.stability = '%.3f'%(float(msg))
+        if msg != '-':
+            self.stability = '%.3f'%(float(msg))
+        else:
+            self.stability = msg
         self.update_values()
     #end def
 
