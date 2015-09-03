@@ -655,7 +655,7 @@ class TakeData:
         self.updateGUI(stamp='Measurement', data=self.measurement)
         self.updateGUI(stamp='Status Bar', data='Running')
         print "start take data"
-        tempnumber = 0
+        self.Tnum = 0
         try:
             while abort_ID == 0:
                 for temp in measureList:
@@ -686,18 +686,24 @@ class TakeData:
                     self.take_PID_Data()
                     self.updateStats()
 
-                    n = 0
-                    while (self.tol != 'OK' or self.stable != 'OK'):
+                    n=0
+                    condition = False
+                    while (not condition):
                         n = n+1
                         self.take_PID_Data()
                         if n%5 == 0:
                             self.updateStats()
                         if abort_ID == 1: break
+
+                        if (self.cycle == 'Heating'):
+                            condition = (self.tol == 'OK' and self.stable == 'OK')
+                        elif (self.cycle == 'Cooling'):
+                            condition = (self.tol == 'OK')
                     # end while
 
                     if abort_ID == 1: break
                     # start measurement
-                    if (self.tol == 'OK' and self.stable == 'OK'):
+                    if (condition):
                         self.measurement = 'ON'
                         self.updateGUI(stamp='Measurement', data=self.measurement)
 
@@ -718,11 +724,12 @@ class TakeData:
                     self.process_data()
 
                     #Check/Change cycle
-                    if (self.cycle == 'Heating' and (measureList[tempnumber+1] < temp])):
+                    if (self.cycle == 'Heating' and (measureList[self.Tnum+1] < temp)):
                         self.cycle = 'Cooling'
+                        self.stable = 'N/A'
                         self.updateGUI(stamp='Cycle', data=self.cycle)
                     #end if
-                    tempnumber = tempnumber + 1
+                    self.Tnum = self.Tnum + 1
 
                     if abort_ID == 1: break
                 #end for
@@ -851,7 +858,7 @@ class TakeData:
         #end if
 
         elif (self.cycle == 'Cooling'):
-            current_measurement = measureList[self.dTnum]
+            current_measurement = measureList[self.Tnum]
             if (np.abs(self.tS-current_measurement) < self.tolerance):
                 self.tol = 'OK'
             #end if
