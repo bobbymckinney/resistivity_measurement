@@ -661,7 +661,8 @@ class TakeData:
                 for temp in measureList:
                     print "Set temp tp %f" %(temp)
                     if self.cycle == 'Heating':
-                        self.heaterTC.set_setpoint(temp+self.tolerance)
+                        currenttemp = temp - 3 * self.tolerance
+                        self.heaterTC.set_setpoint(currenttemp)
                     #end if
                     elif self.cycle == 'Cooling':
                         if temp > 45:
@@ -697,6 +698,27 @@ class TakeData:
 
                         if (self.cycle == 'Heating'):
                             condition = (self.tol == 'OK' and self.stable == 'OK')
+                            if (self.stable == 'OK' and self.tol != 'OK'):
+                                if (temp - self.tS > 0):
+                                    currenttemp = currenttemp + self.tolerance
+                                    self.heaterTC.set_setpoint(currenttemp)
+                                    self.recentPID = []
+                                    self.recentPIDtime=[]
+                                    self.stability = '-'
+                                    self.stable == 'NO'
+                                    self.tol = 'NO'
+                                    self.updateGUI(stamp="Stability", data=self.stability)
+                                #end if
+                                elif (temp - self.tS < 0):
+                                    currenttemp = currenttemp - self.tolerance
+                                    self.heaterTC.set_setpoint(currenttemp)
+                                    self.recentPID = []
+                                    self.recentPIDtime=[]
+                                    self.stability = '-'
+                                    self.stable == 'NO'
+                                    self.tol = 'NO'
+                                    self.updateGUI(stamp="Stability", data=self.stability)
+                                #end if
                         elif (self.cycle == 'Cooling'):
                             condition = (self.tol == 'OK')
                     # end while
