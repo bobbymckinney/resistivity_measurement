@@ -1167,7 +1167,7 @@ class TakeData:
         resistivity = self.resistivitycalc([rA],[rB])
         myfile.write('%f,%.2f,%.4f,' %(time,temp,thickness))
         myfile.write('%.3f,%.3f,' % (rA*1000, rB*1000) )
-        myfile.write('%.3f\n' % (resistivity))
+        myfile.write('%.3f\n' % (resistivity*1000))
 
         timecalclist.append(time)
         tempcalclist.append(temp)

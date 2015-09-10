@@ -53,6 +53,7 @@ dataFile = 'Data_Backup.csv'
 finaldataFile = 'Data.csv'
 statusFile = 'Status.csv'
 resistivityFile = 'Resistivity.csv'
+programFile = 'ProgramLog.txt'
 
 thickness = 0.1 #placeholder for sample thickness in cm
 
@@ -61,7 +62,7 @@ APP_EXIT = 1 # id for File\Quit
 stability_threshold = 0.1/60 # change in PID temp must be less than this value for a set time in order to reach an equilibrium
 tolerance = 2 # Temperature must be within this temperature range of the PID setpoint in order to begin a measurement
 measureList = []
-measurement_number = 20
+measurement_number = 5
 
 AbsoluteMaxLimit = 1000 # Restricts the user to an absolute max temperature
 maxLimit = 600 # Restricts the user to a max temperature, changes based on input temps
@@ -83,6 +84,7 @@ filePath = 'global file path'
 myfile = 'global file'
 rawfile = 'global file'
 processfile = 'global file'
+logfile = 'global file'
 
 # Placers for the GUI plots:
 sampletemp_list = []
@@ -622,6 +624,8 @@ class TakeData:
         global cycle
         global thickness
 
+        global logfile
+
         global timecalclist, tempcalclist, rAcalclist, rBcalclist
 
         self.k2400 = k2400
@@ -630,19 +634,19 @@ class TakeData:
         self.heaterTC = heaterTC
         self.sampleTC = sampleTC
 
-        self.current = current
+        self.current = float(current)
         self.tolerance = tolerance
         self.stability_threshold = stability_threshold
         self.cycle = 'Heating'
         self.updateGUI(stamp="Cycle", data=self.cycle)
         self.thickness = thickness
-
         self.k2400.set_current(float(self.current))
-
+        logfile.write('Set k2400 current to %f\n'% (self.current))
         self.exception_ID = 0
 
         self.start = time.time()
         #time initializations
+        logfile.write('%f Start time.\n' %(self.start))
         self.ttS = 0
         self.ttH = 0
 
@@ -655,6 +659,7 @@ class TakeData:
         self.updateGUI(stamp='Measurement', data=self.measurement)
         self.updateGUI(stamp='Status Bar', data='Running')
         print "start take data"
+        logfile.write("%f Start take data routine\n" %(time.time()-self.start))
         self.Tnum = 0
         try:
             while abort_ID == 0:
@@ -663,13 +668,16 @@ class TakeData:
                     if self.cycle == 'Heating':
                         currenttemp = temp - 3 * self.tolerance
                         self.heaterTC.set_setpoint(currenttemp)
+                        logfile.write('%f Next point in heating cycle. Set heater temp to %f\n'%(time.time()-self.start, currenttemp))
                     #end if
                     elif self.cycle == 'Cooling':
                         if temp > 45:
                             self.heaterTC.set_setpoint(temp - 30)
+                            logfile.write('%f Next point in cooling cycle. Set heater temp to %f\n'%(time.time()-self.start, temp-30))
                         #end if
                         else:
                             self.heaterTC.set_setpoint(15)
+                            logfile.write('%f Next point in cooling cycle. Set heater temp to %f\n'%(time.time()-self.start, 15))
                         #end else
                     #end elif
 
@@ -692,6 +700,7 @@ class TakeData:
                     while (not condition):
                         n = n+1
                         self.take_PID_Data()
+                        time.sleep(3)
                         if n%7 == 0:
                             self.updateStats()
                         if abort_ID == 1: break
@@ -702,6 +711,7 @@ class TakeData:
                                 if (temp - self.tS > 2*self.tolerance and temp - self.tS < 4*self.tolerance):
                                     currenttemp = currenttemp + self.tolerance
                                     self.heaterTC.set_setpoint(currenttemp)
+                                    logfile.write('%f Stable but below set temp, reset heater temp to %f\n'%(time.time()-self.start,currenttemp))
                                     self.recentPID = []
                                     self.recentPIDtime=[]
                                     self.stability = '-'
@@ -712,6 +722,7 @@ class TakeData:
                                 elif (self.tS - temp < self.tolerance and temp-currenttemp < 8*self.tolerance):
                                     currenttemp = currenttemp - 4*self.tolerance
                                     self.heaterTC.set_setpoint(currenttemp)
+                                    logfile.write('%f Stable but above set temp, reset heater temp to %f\n'%(time.time()-self.start,currenttemp))
                                     self.recentPID = []
                                     self.recentPIDtime=[]
                                     self.stability = '-'
@@ -728,6 +739,7 @@ class TakeData:
                     if (condition):
                         self.measurement = 'ON'
                         self.updateGUI(stamp='Measurement', data=self.measurement)
+                        logfile.write('%f Condition for measurement met. Begin resistivity measurement.\n' %(time.time()-self.start))
 
                         for i in range(measurement_number):
                             self.data_measurement()
@@ -737,6 +749,7 @@ class TakeData:
 
                         if abort_ID == 1: break
                         self.measurement = 'OFF'
+                        logfile.write('%f Resistivity Measurement Complete.\n' %(time.time()-self.start))
 
                         self.tol = 'NO'
                         self.stable = 'NO'
@@ -750,6 +763,7 @@ class TakeData:
                         self.cycle = 'Cooling'
                         self.stable = 'N/A'
                         self.updateGUI(stamp='Cycle', data=self.cycle)
+                        logfile.write('%f Change cycle from heating to cooling.\n' % (time.time()-self.start))
                     #end if
                     self.Tnum = self.Tnum + 1
 
@@ -761,7 +775,7 @@ class TakeData:
 
         except exceptions.Exception as e:
             log_exception(e)
-
+            logfile.write('%f Exception occured. %s\n' % (time.time()-self.start, e))
             abort_ID = 1
 
             self.exception_ID = 1
@@ -775,7 +789,7 @@ class TakeData:
         else:
             self.updateGUI(stamp='Status Bar', data='Finished, Ready')
         #end else
-
+        logfile.write('%f Take data routine finished. Set heater to %f\n'%(time.time()-self.start, 20))
         self.heaterTC.set_setpoint(20)
 
         self.save_files()
@@ -789,7 +803,8 @@ class TakeData:
         """ Takes data from the PID and proceeds to a
             function that checks the PID setpoints.
         """
-
+        global logfile
+        logfile.write('%f Take PID Data\n' %(time.time()-self.start))
         try:
             # Take Data
             self.tS = float(self.sampleTC.get_pv())
@@ -809,7 +824,7 @@ class TakeData:
             self.tHset = float(self.heaterTC.get_setpoint())
 
         print "t_sampletemp: %.2f s\tsampletemp: %s C\nt_heatertemp: %.2f s\theatertemp: %s C" % (self.ttS, self.tS, self.ttH, self.tH)
-
+        logfile.write('%f SampleTemp: %f C\nHeaterTemp: %f C\n' %(time.time()-self.start, self.tS, self.tH))
         #check stability of PID
         if (len(self.recentPID)<7):
             self.recentPID.append(self.tS)
@@ -822,6 +837,7 @@ class TakeData:
             self.recentPIDtime.append(self.ttS)
 
             self.stability = self.getStability(self.recentPID,self.recentPIDtime)
+            logfile.write('%f Stability: %fC/min\n' % (time.time()-self.start, self.stability*60))
             print "stability: %.4f C/min" % (self.stability*60)
             print "stability threshold: %.4f C/min" % (self.stability_threshold*60)
             self.updateGUI(stamp="Stability", data=self.stability*60)
@@ -840,7 +856,9 @@ class TakeData:
     def safety_check(self):
         global maxLimit
         global abort_ID
+        global logfile
 
+        logfile.write('%f Safety Check\n' % (time.time()-self.start))
         if float(self.tS) > maxLimit or float(self.tH) > maxLimit:
             abort_ID = 1
     #end def
@@ -857,7 +875,8 @@ class TakeData:
     #--------------------------------------------------------------------------
     def check_status(self):
         global measureList
-
+        global logfile
+        logfile.write('%f Check Status\n' %(time.time()-self.start))
         if (self.cycle == 'Heating'):
             current_measurement = measureList[self.Tnum]
             if (np.abs(self.tS-current_measurement) < self.tolerance):
@@ -891,14 +910,16 @@ class TakeData:
         #end elif
 
         print "cycle: %s\ntolerance: %s\nstable: %s\n" % (self.cycle, self.tol, self.stable)
-
+        logfile.write("%f cycle: %s\ntolerance: %s\nstable: %s\n" % (time.time()-self.start,self.cycle, self.tol, self.stable))
 
         self.updateGUI(stamp="Status Bar", data=[self.tol, self.stable])
     #end def
 
     #--------------------------------------------------------------------------
     def updateStats(self):
+        global logfile
         print('update all stats\n')
+        logfile.write('%f Update all stats\n'% (time.time()-self.start))
         # short the matrix card
         self.k2700.closeChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
@@ -991,10 +1012,15 @@ class TakeData:
         rawfile.write('%s,'%(self.cycle))
         rawfile.write('%.2f,%.2f,'%(self.r_A*1000,self.r_B*1000))
         rawfile.write('%.3f\n'%(self.resistivity))
+
+        logfile.write('%f rA: %f mOhm\nrB: %f mOhm\n'% (time.time()-self.start,self.r_A*1000,self.r_B*1000))
+
     #end def
 
     #--------------------------------------------------------------------------
     def delta_method(self):
+        global logfile
+        logfile.write('%f Delta Method\n'% (time.time()-self.start))
         print('Delta Method')
         t1 = time.time() - self.start
         # delta method:
@@ -1062,6 +1088,8 @@ class TakeData:
 
     #--------------------------------------------------------------------------
     def data_measurement(self):
+        global logfile
+        logfile.write('%f Data Measurement\n'% (time.time()-self.start))
 
         self.delay = 2.5 # time for the keithley to take a steady measurement
 
@@ -1075,6 +1103,7 @@ class TakeData:
         ### r_A:
         # r_12,34
         print('measure r_12,34')
+        logfile.write('%f Measure R_12,34\n'% (time.time()-self.start))
         self.k2700.openChannels('125, 127, 128')
         print(self.k2700.get_closedChannels())
         self.r_1234, self.t_1234 = self.delta_method()
@@ -1087,6 +1116,7 @@ class TakeData:
 
         # r_34,12
         print('measure r_34,12')
+        logfile.write('%f Measure R_34,12\n'% (time.time()-self.start))
         self.k2700.closeChannels('118')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('117, 126, 127, 128')
@@ -1102,6 +1132,7 @@ class TakeData:
         time.sleep(self.delay)
 
         # Calculate r_A
+        logfile.write('%f Calculate R_A\n'% (time.time()-self.start))
         self.r_A = (self.r_1234 + self.r_3412)/2
         self.t_A = time.time()-self.start
         self.updateGUI(stamp="Time R_A", data=self.t_A)
@@ -1113,6 +1144,7 @@ class TakeData:
         ### r_B:
         # r_13,24
         print('measure r_13,24')
+        logfile.write('%f Measure R_13,24\n'% (time.time()-self.start))
         self.k2700.closeChannels('119')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('117, 125, 126, 127')
@@ -1129,6 +1161,7 @@ class TakeData:
 
         # r_24,13
         print('measure r_24,13')
+        logfile.write('%f Measure R_24,13\n'% (time.time()-self.start))
         self.k2700.closeChannels('120')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('117, 125, 126, 128')
@@ -1142,6 +1175,7 @@ class TakeData:
         print "t_r2413: %.2f s\tr2413: %.2f Ohm" % (self.t_2413, self.r_2413)
         if abort_ID == 1: return
         # Calculate r_B
+        logfile.write('%f Calculate R_B\n'% (time.time()-self.start))
         self.r_B = (self.r_1324 + self.r_2413)/2
         self.t_B = time.time()-self.start
         self.updateGUI(stamp="Time R_B", data=self.t_B)
@@ -1157,8 +1191,11 @@ class TakeData:
     def write_data_to_file(self):
         global timecalclist, tempcalclist, rAcalclist, rBcalclist
         global myfile
+        global logfile
+
 
         print('\nWrite data to file\n')
+        logfile.write('%fWrite Data to File\n'% (time.time()-self.start))
         time = (self.t_1234 + self.t_3412 + self.t_1324 + self.t_2413)/4
         temp = self.avgTemp
         thickness = self.thickness
@@ -1167,12 +1204,15 @@ class TakeData:
         resistivity = self.resistivitycalc([rA],[rB])
         myfile.write('%f,%.2f,%.4f,' %(time,temp,thickness))
         myfile.write('%.3f,%.3f,' % (rA*1000, rB*1000) )
-        myfile.write('%.3f\n' % (resistivity))
+        myfile.write('%.3f\n' % (resistivity*1000))
 
         timecalclist.append(time)
         tempcalclist.append(temp)
         rAcalclist.append(rA)
         rBcalclist.append(rB)
+
+        logfile.write('%f Average Temp: %f C\nrA: %f mOhm\nrB: %f mOhm\nresistivity: %f mOhm*cm\n'% (time.time()-self.start,temp, rA*1000,rB*1000,resistivity*1000))
+
     #end def
 
     #--------------------------------------------------------------------------
@@ -1189,7 +1229,9 @@ class TakeData:
     def process_data(self):
         global timecalclist, tempcalclist, rAcalclist, rBcalclist
         global processfile
+        global logfile
 
+        logfile.write('%f Process Data\n'% (time.time()-self.start))
         time = np.average(timecalclist)
         thickness = self.thickness
         temp = np.average(tempcalclist)
@@ -1204,8 +1246,9 @@ class TakeData:
         ''' Function saving the files after the data acquisition loop has been
             exited.
         '''
-
+        global logfile
         print('Save Files')
+        logfile.write('%f Save Files\n'% (time.time()-self.start))
 
         global dataFile
         global finaldataFile
@@ -1236,6 +1279,7 @@ class TakeData:
         myfinalfile.write(contents)
         myfinalfile.close()
 
+        logfile.close()
         # Save the GUI plots
         self.updateGUI(stamp='Save_All', data='Save')
     #end def
@@ -1422,6 +1466,8 @@ class UserPanel(wx.Panel):
         global processfile
         global statusFile
         global resistivityFile
+        global programFile
+        global logfile
         global measureList
         global abort_ID
 
@@ -1440,10 +1486,13 @@ class UserPanel(wx.Panel):
                     myfile = open(dataFile, 'w') # opens file for writing/overwriting
                     rawfile = open(statusFile,'w')
                     processfile = open(resistivityFile,'w')
+                    logfile = open(programFile,'w')
                     begin = datetime.now() # Current date and time
                     myfile.write('Start Time: ' + str(begin) + '\n')
                     rawfile.write('Start Time: ' + str(begin) + '\n')
                     processfile.write('Start Time: ' + str(begin) + '\n')
+                    logfile.write('Start Time: ' +str(begin) + '\n')
+                    logfile.write("Sample thickness: %f cm\nSet Current: %f\nPID Tolerance: %f C\nStability Threshold: %fC/min\nMeasuremennt Number: %d\n" % (thickness,current,tolerance,stability_threshold,measurement_number))
 
                     dataheaders = 'time (s), temp (C), thickness (cm), R_A (mOhm), R_B (mOhm), resistivity (mOhm*cm)\n'
                     myfile.write(dataheaders)
