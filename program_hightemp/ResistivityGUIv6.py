@@ -62,7 +62,7 @@ APP_EXIT = 1 # id for File\Quit
 stability_threshold = 0.1/60 # change in PID temp must be less than this value for a set time in order to reach an equilibrium
 tolerance = 2 # Temperature must be within this temperature range of the PID setpoint in order to begin a measurement
 measureList = []
-measurement_number = 5
+measurement_number = 8
 
 AbsoluteMaxLimit = 1000 # Restricts the user to an absolute max temperature
 maxLimit = 600 # Restricts the user to a max temperature, changes based on input temps

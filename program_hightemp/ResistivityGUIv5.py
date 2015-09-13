@@ -61,7 +61,7 @@ APP_EXIT = 1 # id for File\Quit
 stability_threshold = 0.1/60 # change in PID temp must be less than this value for a set time in order to reach an equilibrium
 tolerance = 2 # Temperature must be within this temperature range of the PID setpoint in order to begin a measurement
 measureList = []
-measurement_number = 20
+measurement_number = 8
 
 AbsoluteMaxLimit = 1000 # Restricts the user to an absolute max temperature
 maxLimit = 600 # Restricts the user to a max temperature, changes based on input temps
@@ -692,14 +692,17 @@ class TakeData:
                     while (not condition):
                         n = n+1
                         self.take_PID_Data()
+                        time.sleep(3)
                         if n%7 == 0:
                             self.updateStats()
+                        #end if
                         if abort_ID == 1: break
 
                         if (self.cycle == 'Heating'):
                             condition = (self.tol == 'OK' and self.stable == 'OK')
                             if (self.stable == 'OK' and self.tol != 'OK'):
                                 if (temp - self.tS > 2*self.tolerance and temp - self.tS < 4*self.tolerance):
+                                    print 'increase current temp'
                                     currenttemp = currenttemp + self.tolerance
                                     self.heaterTC.set_setpoint(currenttemp)
                                     self.recentPID = []
@@ -709,7 +712,8 @@ class TakeData:
                                     self.tol = 'NO'
                                     self.updateGUI(stamp="Stability", data=self.stability)
                                 #end if
-                                elif (self.tS - temp < self.tolerance and temp-currenttemp < 8*self.tolerance):
+                                if (self.tS > temp + self.tolerance and temp-currenttemp < 8*self.tolerance):
+                                    print 'decrease current temp'
                                     currenttemp = currenttemp - 4*self.tolerance
                                     self.heaterTC.set_setpoint(currenttemp)
                                     self.recentPID = []
@@ -811,7 +815,7 @@ class TakeData:
         print "t_sampletemp: %.2f s\tsampletemp: %s C\nt_heatertemp: %.2f s\theatertemp: %s C" % (self.ttS, self.tS, self.ttH, self.tH)
 
         #check stability of PID
-        if (len(self.recentPID)<7):
+        if (len(self.recentPID)<6):
             self.recentPID.append(self.tS)
             self.recentPIDtime.append(self.ttS)
         #end if
@@ -990,7 +994,7 @@ class TakeData:
         rawfile.write('%.2f,%.2f,%.2f,' %(self.tS,self.tH,self.tHset))
         rawfile.write('%s,'%(self.cycle))
         rawfile.write('%.2f,%.2f,'%(self.r_A*1000,self.r_B*1000))
-        rawfile.write('%.3f\n'%(self.resistivity))
+        rawfile.write('%.3f\n'%(self.resistivity*1000))
     #end def
 
     #--------------------------------------------------------------------------
