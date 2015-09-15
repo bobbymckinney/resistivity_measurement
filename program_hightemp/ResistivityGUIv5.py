@@ -701,16 +701,18 @@ class TakeData:
                         if (self.cycle == 'Heating'):
                             condition = (self.tol == 'OK' and self.stable == 'OK')
                             if (self.stable == 'OK' and self.tol != 'OK'):
-                                if (temp - self.tS > 2*self.tolerance and temp - self.tS < 4*self.tolerance):
-                                    print 'increase current temp'
-                                    currenttemp = currenttemp + self.tolerance
-                                    self.heaterTC.set_setpoint(currenttemp)
-                                    self.recentPID = []
-                                    self.recentPIDtime=[]
-                                    self.stability = '-'
-                                    self.stable == 'NO'
-                                    self.tol = 'NO'
-                                    self.updateGUI(stamp="Stability", data=self.stability)
+                                if (temp - self.tS > self.tolerance and temp - self.tS < 10*self.tolerance):
+                                    if (currenttemp - temp < 5*self.tolerance):
+                                        print 'increase current temp'
+                                        currenttemp = currenttemp + self.tolerance
+                                        self.heaterTC.set_setpoint(currenttemp)
+                                        self.recentPID = []
+                                        self.recentPIDtime=[]
+                                        self.stability = '-'
+                                        self.stable == 'NO'
+                                        self.tol = 'NO'
+                                        self.updateGUI(stamp="Stability", data=self.stability)
+                                    #end if
                                 #end if
                                 if (self.tS > temp + self.tolerance and temp-currenttemp < 8*self.tolerance):
                                     print 'decrease current temp'
