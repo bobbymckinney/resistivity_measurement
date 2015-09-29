@@ -388,6 +388,7 @@ class InitialCheck:
 
         self.measure_contacts()
 
+        self.resetSourcemeter()
         self.create_plot()
 
 
@@ -407,6 +408,13 @@ class InitialCheck:
     #end def
     #--------------------------------------------------------------------------
 
+    #--------------------------------------------------------------------------
+    def resetSourcemeter(self):
+        self.k2400.current_mode()
+        self.k2400.set_current_range(10.5*10**(-3)) # Default
+        self.k2400.set_current(float(current))
+    #end def
+    #--------------------------------------------------------------------------
 
     #--------------------------------------------------------------------------
     def measure_contacts(self):
