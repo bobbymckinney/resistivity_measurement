@@ -1,1 +1,1 @@
-python Google\ Drive/resistivity_measurement/program_hightemp/ResistivityGUIv5.py
+python Dropbox//te_measurements/resistivity_measurement/program_hightemp/ResistivityGUIv5.py
