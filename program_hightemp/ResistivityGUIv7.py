@@ -42,7 +42,7 @@ import EnhancedStatusBar as ESB
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
 
-version = '6.0 (2016-01-11)'
+version = '7.0 (2016-01-14)'
 
 '''
 Global Variables:
@@ -74,8 +74,7 @@ abort_ID = 0 # Abort method
 k2700 = ''
 k2400 = ''
 k2182 = ''
-heaterTC = ''
-sampleTC = ''
+heater = ''
 
 # placer for directory
 filePath = 'global file path'
@@ -87,10 +86,9 @@ pidfile = 'global file'
 processfile = 'global file'
 
 # Placers for the GUI plots:
-sampletemp_list = []
-tsampletemp_list = []
-heatertemp_list = []
-theatertemp_list = []
+temp_list = []
+setpoint_list = []
+ttemp_list = []
 rho_list = []
 t_list = []
 
@@ -98,8 +96,6 @@ timecalclist = []
 tempcalclist = []
 rAcalclist = []
 rBcalclist = []
-
-cycle = 'Heating'
 
 #ResourceManager for visa instrument control
 ResourceManager = visa.ResourceManager()
@@ -329,35 +325,33 @@ class Setup:
         global k2700
         global k2400
         global k2182
-        global sampleTC
-        global heaterTC
+        global heater
 
         # Define Keithley instrument ports:
         self.k2700 = k2700 = Keithley_2700('GPIB0::16::INSTR') # MultiMeter for Matrix Card operation
         self.k2400 = k2400 = Keithley_2400('GPIB0::24::INSTR') # SourceMeter
         self.k2182 = k2182 = Keithley_2182('GPIB0::7::INSTR') # NanoVoltMeter
         # Define the ports for the PID
-        self.sampleTC = sampleTC = PID('/dev/cu.usbserial', 1) # sample thermocouple
-        self.heaterTC = heaterTC = PID('/dev/cu.usbserial', 2) # heater PID
+        self.heater = heater = PID('/dev/cu.usbserial', 2) # heater PID
 
 
         """
         Prepare the PID for operation:
         """
         # Set the control method to PID
-        self.heaterTC.write_register(PID.control, PID.pIDcontrol)
+        self.heater.write_register(PID.control, PID.pIDcontrol)
 
         # Set the PID to auto parameter
-        self.heaterTC.write_register(PID.pIDparam, PID.pIDparam_Auto)
+        self.heater.write_register(PID.pIDparam, PID.pIDparam_Auto)
 
         # Set the thermocouple type
-        self.heaterTC.write_register(PID.tCouple, PID.tCouple_K)
+        self.heater.write_register(PID.tCouple, PID.tCouple_K)
 
         # Set the control to heating only
-        self.heaterTC.write_register(PID.heatingCoolingControl, PID.heating)
+        self.heater.write_register(PID.heatingCoolingControl, PID.heating)
 
         # Run the controllers
-        self.heaterTC.run()
+        self.heater.run()
 
 #end class
 ###############################################################################
@@ -368,11 +362,9 @@ class InitialCheck:
     def __init__(self):
         global k2700
         global k2400
-        global sampleTC
-        global heaterTC
+        global heater
         
-        self.sampleTC = sampleTC
-        self.heaterTC = heaterTC
+        self.heater = heater
 
         self.k2700 = k2700
         self.k2400 = k2400
@@ -403,13 +395,11 @@ class InitialCheck:
 
     def checkTemp(self):
         
-        heatertemp = self.heaterTC.get_pv()
-        heatersetpoint = self.heaterTC.get_setpoint()
-        sampletemp = self.sampleTC.get_pv()
+        temp = self.heater.get_pv()
+        setpoint = self.heater.get_setpoint()
         
-        print 'heater temp: ', heatertemp
-        print 'heater set point: ', heatersetpoint
-        print 'sample temp: ', sampletemp
+        print 'temp: ', temp
+        print 'set point: ', setpoint
     
     #--------------------------------------------------------------------------
     def setupIV(self):
@@ -634,15 +624,13 @@ class TakeData:
         global k2700
         global k2400
         global k2182
-        global heaterTC
-        global sampleTC
+        global heater
 
         global tolerance
         global stability_threshold
         global measureList
         global measurement_number
         global current
-        global cycle
         global thickness
 
         global timecalclist, tempcalclist, rAcalclist, rBcalclist
@@ -650,14 +638,11 @@ class TakeData:
         self.k2400 = k2400
         self.k2700 = k2700
         self.k2182 = k2182
-        self.heaterTC = heaterTC
-        self.sampleTC = sampleTC
+        self.heater = heater
 
         self.current = current
         self.tolerance = tolerance
         self.stability_threshold = stability_threshold
-        self.cycle = 'Heating'
-        self.updateGUI(stamp="Cycle", data=self.cycle)
         self.thickness = thickness
 
         self.k2400.set_current(float(self.current))
@@ -666,8 +651,7 @@ class TakeData:
 
         self.start = time.time()
         #time initializations
-        self.ttS = 0
-        self.ttH = 0
+        self.time_temp = 0
 
         self.delay = 3
         self.tempdelay = 5
@@ -683,40 +667,14 @@ class TakeData:
             while abort_ID == 0:
                 for temp in measureList:
                     self.measurementtemp = temp
-                    print "Set measurement to %f" %(temp)
-                    if self.cycle == 'Heating':
-                        currenttemp = temp
-                        print 'set heater setpoint to ', currenttemp
-                        while True:
-                            try:
-                                self.heaterTC.set_setpoint(currenttemp)
-                                break
-                            except IOError:
-                                print 'IOError: communication failure'
-                        #end while
-                    #end if
-                    elif self.cycle == 'Cooling':
-                        if temp > 45:
-                            print 'set heater setpoint to ', temp - 30
-                            while True:
-                                try:
-                                    self.heaterTC.set_setpoint(temp - 30)
-                                    break
-                                except IOError:
-                                    print 'IOError: communication failure'
-                            #end while
-                        #end if
-                        else:
-                            print 'set heater setpoint to ', 15
-                            while True:
-                                try:
-                                    self.heaterTC.set_setpoint(15)
-                                    break
-                                except IOError:
-                                    print 'IOError: communication failure'
-                            #end while
-                        #end else
-                    #end elif
+                    print "Set measurement to %f" %(self.measurementtemp)
+                    while True:
+                        try:
+                            self.heater.set_setpoint(self.measurementtemp)
+                            break
+                        except IOError:
+                            print 'IOError: communication failure'
+                    #end while
 
                     timecalclist = []
                     tempcalclist = []
@@ -727,73 +685,20 @@ class TakeData:
                     self.recentPIDtime=[]
                     self.stability = '-'
                     self.updateGUI(stamp="Stability", data=self.stability)
-                    self.pidset = float(self.heaterTC.get_setpoint())
 
                     self.take_PID_Data()
                     self.updateStats()
 
                     n=0
                     condition = False
-                    self.stabilitytime = time.time()
                     while (not condition):
                         n = n+1
-                        for i in range(10):
-                            self.take_PID_Data()
-                            if abort_ID == 1: break
-                            time.sleep(3)
-                        #end for
-                        if n%4 == 0:
+                        self.take_PID_Data()
+                        if n%10 == 0:
                             self.updateStats()
                         #end if
+                        condition = (self.tol == 'OK' and self.stable == 'OK')
                         if abort_ID == 1: break
-
-                        if (self.cycle == 'Heating'):
-                            condition = (self.tol == 'OK' and self.stable == 'OK')
-                            if (self.stable == 'OK' and self.tol != 'OK'):
-                                if (temp - self.tolerance > self.tS and time.time() - self.stabilitytime > 600):
-                                    print 'increase current temp'
-                                    self.stabilitytime = time.time()
-                                    tempdiff = abs(temp - self.tS)
-                                    currenttemp = currenttemp + .5*tempdiff
-                                    while True:
-                                        try:
-                                            self.heaterTC.set_setpoint(currenttemp)
-                                            break
-                                        except IOError:
-                                            print 'IOError: communication failure'
-                                    #end while
-                                    self.recentPID = []
-                                    self.recentPIDtime=[]
-                                    self.stability = '-'
-                                    self.stable == 'NO'
-                                    self.tol = 'NO'
-                                    self.updateGUI(stamp="Stability", data=self.stability)
-                                    
-                                #end if
-                                if (self.tS > temp + self.tolerance and time.time() - self.stabilitytime > 600):
-                                    print 'decrease current temp'
-                                    self.stabilitytime = time.time()
-                                    tempdiff = abs(self.tS - temp)
-                                    currenttemp = currenttemp - .5*tempdiff
-                                    if (currenttemp < 15):
-                                        currenttemp = 15
-                                    #end if
-                                    while True:
-                                        try:
-                                            self.heaterTC.set_setpoint(currenttemp)
-                                            break
-                                        except IOError:
-                                            print 'ioerror: communication failure'
-                                    #end while
-                                    self.recentPID = []
-                                    self.recentPIDtime=[]
-                                    self.stability = '-'
-                                    self.stable == 'NO'
-                                    self.tol = 'NO'
-                                    self.updateGUI(stamp="Stability", data=self.stability)
-                                #end if
-                        elif (self.cycle == 'Cooling'):
-                            condition = (self.tol == 'OK')
                     # end while
 
                     if abort_ID == 1: break
@@ -818,13 +723,6 @@ class TakeData:
                     #end if
                     if abort_ID == 1: break
                     self.process_data()
-
-                    #Check/Change cycle
-                    if (self.cycle == 'Heating' and (measureList[self.Tnum+1] < temp)):
-                        self.cycle = 'Cooling'
-                        self.stable = 'N/A'
-                        self.updateGUI(stamp='Cycle', data=self.cycle)
-                    #end if
                     self.Tnum = self.Tnum + 1
 
                     if abort_ID == 1: break
@@ -851,7 +749,7 @@ class TakeData:
         #end else
         while True:
             try:
-                self.heaterTC.set_setpoint(20)
+                self.heater.set_setpoint(20)
                 break
             except IOError:
                 print 'IOError: communication failure'
@@ -871,45 +769,37 @@ class TakeData:
 
         try:
             # Take Data
-            self.tS = float(self.sampleTC.get_pv())
-            self.ttS = time.time() - self.start
-            self.tH = float(self.heaterTC.get_pv())
-            self.ttH = time.time() - self.start
-
-            # Get the current setpoints on the PID:
-            self.tHset = float(self.heaterTC.get_setpoint())
+            self.time_temp = time.time() - self.start
+            self.temp = float(self.heater.get_pv())
+            self.setpoint = float(self.heater.get_setpoint())
 
         except exceptions.ValueError as VE:
             print(VE)
-            self.tS = float(self.sampleTC.get_pv())
-            self.tH = float(self.heaterTC.get_pv())
+            self.time_temp = time.time() - self.start
+            self.temp = float(self.heater.get_pv())
+            self.setpoint = float(self.heater.get_setpoint())
 
-            # Get the current setpoints on the PID:
-            self.tHset = float(self.heaterTC.get_setpoint())
-
-        print "t_sampletemp: %.2f s\tsampletemp: %s C\nt_heatertemp: %.2f s\theatertemp: %s C" % (self.ttS, self.tS, self.ttH, self.tH)
+        print "t_temp: %.2f s\ttemp: %s C" % (self.time_temp, self.temp)
 
         #check stability of PID
         if (len(self.recentPID)<6):
-            self.recentPID.append(self.tS)
-            self.recentPIDtime.append(self.ttS)
+            self.recentPID.append(self.temp)
+            self.recentPIDtime.append(self.time_temp)
         #end if
         else:
             self.recentPID.pop(0)
             self.recentPIDtime.pop(0)
-            self.recentPID.append(self.tS)
-            self.recentPIDtime.append(self.ttS)
+            self.recentPID.append(self.temp)
+            self.recentPIDtime.append(self.time_temp)
 
             self.stability = self.getStability(self.recentPID,self.recentPIDtime)
             print "stability: %.4f C/min" % (self.stability*60)
             print "stability threshold: %.4f C/min" % (self.stability_threshold*60)
             self.updateGUI(stamp="Stability", data=self.stability*60)
         #end else
-        self.updateGUI(stamp="Time Heater Temp", data=self.ttH)
-        self.updateGUI(stamp="Heater Temp", data=self.tH)
-        self.updateGUI(stamp="Time Sample Temp", data=self.ttS)
-        self.updateGUI(stamp="Sample Temp", data=self.tS)
-        self.updateGUI(stamp="Heater SP", data=self.tHset)
+        self.updateGUI(stamp="Time Temp", data=self.time_temp)
+        self.updateGUI(stamp="Setpoint", data=self.setpoint)
+        self.updateGUI(stamp="Temperature", data=self.temp)
 
         self.safety_check()
         self.check_status()
@@ -923,9 +813,7 @@ class TakeData:
         else:
             pidfile.write('-,')
         #end else
-        pidfile.write('%.2f,%.2f,%.2f,' %(self.tS,self.tH,self.tHset))
-        pidfile.write('%.2f,'%(self.measurementtemp))
-        pidfile.write('%s\n'%(self.cycle))
+        pidfile.write('%.2f,%.2f,' %(self.temp,self.setpoint))
     #end def
 
     #--------------------------------------------------------------------------
@@ -933,7 +821,7 @@ class TakeData:
         global maxLimit
         global abort_ID
 
-        if float(self.tS) > maxLimit or float(self.tH) > maxLimit:
+        if float(self.temp) > maxLimit:
             abort_ID = 1
     #end def
 
@@ -950,39 +838,26 @@ class TakeData:
     def check_status(self):
         global measureList
 
-        if (self.cycle == 'Heating'):
-            current_measurement = measureList[self.Tnum]
-            if (np.abs(self.tS-current_measurement) < self.tolerance):
-                self.tol = 'OK'
-            #end if
-            else:
-                self.tol = 'NO'
-            #end else
+        if (np.abs(self.temp-self.measurementtemp) < self.tolerance):
+            self.tol = 'OK'
+        #end if
+        else:
+            self.tol = 'NO'
+        #end else
 
-            if (self.stability!='-'):
-                if (np.abs(self.stability) < self.stability_threshold):
-                    self.stable = 'OK'
-                #end if
-                else:
-                    self.stable = 'NO'
+        if (self.stability!='-'):
+            if (np.abs(self.stability) < self.stability_threshold):
+                self.stable = 'OK'
             #end if
             else:
                 self.stable = 'NO'
-            #end else
         #end if
+        else:
+            self.stable = 'NO'
+        #end else
 
-        elif (self.cycle == 'Cooling'):
-            current_measurement = measureList[self.Tnum]
-            if (np.abs(self.tS-current_measurement) < self.tolerance):
-                self.tol = 'OK'
-            #end if
 
-            else:
-                self.tol = 'NO'
-            #end else
-        #end elif
-
-        print "cycle: %s\ntolerance: %s\nstable: %s\n" % (self.cycle, self.tol, self.stable)
+        print "tolerance: %s\nstable: %s\n" % (self.tol, self.stable)
 
 
         self.updateGUI(stamp="Status Bar", data=[self.tol, self.stable])
@@ -1079,8 +954,7 @@ class TakeData:
         print('\nWrite status to file\n')
         rawfile.write('%.1f,'%(self.t_B))
         rawfile.write('%.4f,'%(self.thickness))
-        rawfile.write('%.2f,%.2f,%.2f,' %(self.tS,self.tH,self.tHset))
-        rawfile.write('%s,'%(self.cycle))
+        rawfile.write('%.2f,%.2f,' %(self.temp,self.setpoint))
         rawfile.write('%.2f,%.2f,'%(self.r_A*1000,self.r_B*1000))
         rawfile.write('%.3f\n'%(self.resistivity*1000))
     #end def
@@ -1157,7 +1031,7 @@ class TakeData:
 
         self.delay = 2.5 # time for the keithley to take a steady measurement
 
-        temp1 = float(sampleTC.get_pv())
+        temp1 = float(heater.get_pv())
 
         # short the matrix card
         self.k2700.closeChannels('117, 125, 126, 127, 128')
@@ -1200,7 +1074,7 @@ class TakeData:
         self.updateGUI(stamp="R_A", data=self.r_A*1000)
         print "t_rA: %.2f s\trA: %.2f Ohm" % (self.t_A, self.r_A)
 
-        temp2 = float(self.sampleTC.get_pv())
+        temp2 = float(self.heater.get_pv())
 
         ### r_B:
         # r_13,24
@@ -1240,7 +1114,7 @@ class TakeData:
         self.updateGUI(stamp="R_B", data=self.r_B*1000)
         print "t_rB: %.2f s\trB: %.2f Ohm" % (self.t_B, self.r_B)
 
-        temp3 = float(self.sampleTC.get_pv())
+        temp3 = float(self.heater.get_pv())
 
         self.avgTemp = (temp1 + temp2 + temp3)/3
     #end def
@@ -1508,7 +1382,7 @@ class UserPanel(wx.Panel):
 
     #--------------------------------------------------------------------------
     def run(self, event):
-        global k2700, k2400, k2182, heaterTC, sampleTC
+        global k2700, k2400, k2182, heater
         global dataFile
         global finaldataFile
         global myfile
@@ -1545,10 +1419,10 @@ class UserPanel(wx.Panel):
                     dataheaders = 'time (s), temp (C), thickness (cm), R_A (mOhm), R_B (mOhm), resistivity (mOhm*cm)\n'
                     myfile.write(dataheaders)
 
-                    rawheaders = 'time (s), thickness (cm), sampletemp (C), heatertemp (C), heatersetpoint (C), cycle, R_A (mOhm), R_B (mOhm), resistivity (mOhm*cm)\n'
+                    rawheaders = 'time (s), thickness (cm), temperature (C), setpoint (C), R_A (mOhm), R_B (mOhm), resistivity (mOhm*cm)\n'
                     rawfile.write(rawheaders)
                     
-                    pidheaders = 'time (s), stability (C/min), sampletemp (C), heatertemp (C), heatersetpoint (C), measurementtemp (C), cycle\n'
+                    pidheaders = 'time (s), stability (C/min), temperature (C), setpoint (C), measurementtemp (C)\n'
                     pidfile.write(pidheaders)
 
                     processheaders = 'time (s), temp (C),resistivity (mOhm*cm)\n'
@@ -2091,8 +1965,6 @@ class StatusPanel(wx.Panel):
         wx.Panel.__init__(self, *args, **kwargs)
 
         global current
-        global cycle
-
         self.ctime = str(datetime.now())[11:19]
         self.time = 0
         self.t='0:00:00'
@@ -2100,12 +1972,10 @@ class StatusPanel(wx.Panel):
         self.rA=str(0.00)
         self.rB=str(0.00)
         self.rho = str(0.00)
-        self.tS=str(30.0)
-        self.tH=str(30.0)
-        self.tHset=str(30.0)
+        self.temp=str(30.0)
+        self.setpoint=str(30.0)
         self.stability = '-'
         self.i = str(0.00)
-        self.cycle = 'None'
         self.measurement = 'OFF'
 
         self.celsius = u"\u2103"
@@ -2122,8 +1992,7 @@ class StatusPanel(wx.Panel):
         # Updates from running program
         pub.subscribe(self.OnTime, "Time R_B")
         pub.subscribe(self.OnTime, "Time R_A")
-        pub.subscribe(self.OnTime, "Time Heater Temp")
-        pub.subscribe(self.OnTime, "Time Sample Temp")
+        pub.subscribe(self.OnTime, "Time Temp")
         pub.subscribe(self.OnTime, "Time Resistivity")
 
         pub.subscribe(self.OnThickness, "Sample Thickness")
@@ -2132,9 +2001,8 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnR_B, "R_B")
         pub.subscribe(self.OnResistivity, "Resistivity")
 
-        pub.subscribe(self.OnHeaterSP, "Heater SP")
-        pub.subscribe(self.OnHeaterTemp, "Heater Temp")
-        pub.subscribe(self.OnSampleTemp, "Sample Temp")
+        pub.subscribe(self.OnSetpoint, "Setpoint")
+        pub.subscribe(self.OnTemp, "Temperature")
         pub.subscribe(self.OnStability, "Stability")
 
         pub.subscribe(self.OnCurrent, "Current")
@@ -2147,9 +2015,8 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnR_A, "R_A Status")
         pub.subscribe(self.OnR_B, "R_B Status")
 
-        pub.subscribe(self.OnHeaterSP, "Heater SP Status")
-        pub.subscribe(self.OnHeaterTemp, "Heater Temp Status")
-        pub.subscribe(self.OnSampleTemp, "Sample Temp Status")
+        pub.subscribe(self.OnSetpoint, "Setpoint Status")
+        pub.subscribe(self.OnTemperature, "Temperature Status")
 
         pub.subscribe(self.OnCurrent, "Current Status")
         pub.subscribe(self.OnMeasurement, "Measurement Status")
@@ -2173,20 +2040,14 @@ class StatusPanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def OnSampleTemp(self, msg):
-        self.tS = '%.1f'%(float(msg))
+    def OnTemp(self, msg):
+        self.temp = '%.1f'%(float(msg))
         self.update_values()
     #end def
 
     #--------------------------------------------------------------------------
-    def OnHeaterTemp(self, msg):
-        self.tH = '%.1f'%(float(msg))
-        self.update_values()
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnHeaterSP(self, msg):
-        self.tHset = '%.1f'%(float(msg))
+    def OnSetpoint(self, msg):
+        self.setpoint = '%.1f'%(float(msg))
         self.update_values()
     #end def
 
@@ -2202,12 +2063,6 @@ class StatusPanel(wx.Panel):
     #--------------------------------------------------------------------------
     def OnCurrent(self, msg):
         self.i = '%.2f'%(float(msg))
-        self.update_values()
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnCycle(self, msg):
-        self.cycle = msg
         self.update_values()
     #end def
 
@@ -2272,12 +2127,10 @@ class StatusPanel(wx.Panel):
         self.label_t.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_d = wx.StaticText(self, label="sample thickness (cm):")
         self.label_d.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_tS = wx.StaticText(self, label="sample temp ("+self.celsius+ "):")
-        self.label_tS.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_tH = wx.StaticText(self, label="heater temp ("+self.celsius+ "):")
-        self.label_tH.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_tHset = wx.StaticText(self, label="heater set point ("+self.celsius+ "):")
-        self.label_tHset.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_temperature = wx.StaticText(self, label="temperature ("+self.celsius+ "):")
+        self.label_temperature.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_setpoint = wx.StaticText(self, label="setpoint ("+self.celsius+ "):")
+        self.label_setpoint.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_stability = wx.StaticText(self, label="stability ("+self.celsius+ "/min):")
         self.label_stability.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_rA = wx.StaticText(self, label="resistance_A (m"+self.ohm+"):")
@@ -2288,8 +2141,6 @@ class StatusPanel(wx.Panel):
         self.label_rho.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_i = wx.StaticText(self, label="current (mA):")
         self.label_i.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_cycle = wx.StaticText(self, label="cycle:")
-        self.label_cycle.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_measurement = wx.StaticText(self, label="measurement:")
         self.label_measurement.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
 
@@ -2299,12 +2150,10 @@ class StatusPanel(wx.Panel):
         self.tcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.dcurrent = wx.StaticText(self, label=self.d)
         self.dcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.tScurrent = wx.StaticText(self, label=self.tS)
-        self.tScurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.tHcurrent = wx.StaticText(self, label=self.tH)
-        self.tHcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.tHsetcurrent = wx.StaticText(self, label=self.tHset)
-        self.tHsetcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.tempcurrent = wx.StaticText(self, label=self.temp)
+        self.tempcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.setpointcurrent = wx.StaticText(self, label=self.setpoint)
+        self.setpointcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.stabilitycurrent = wx.StaticText(self, label=self.stability)
         self.stabilitycurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.rAcurrent = wx.StaticText(self, label=self.rA)
@@ -2315,9 +2164,7 @@ class StatusPanel(wx.Panel):
         self.rhocurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.icurrent = wx.StaticText(self, label=self.i)
         self.icurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.cyclecurrent = wx.StaticText(self, label=self.cycle)
-        self.cyclecurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.measurementcurrent = wx.StaticText(self, label=self.cycle)
+        self.measurementcurrent = wx.StaticText(self, label=self.measurement)
         self.measurementcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
 
     #end def
@@ -2327,22 +2174,20 @@ class StatusPanel(wx.Panel):
         self.ctimecurrent.SetLabel(self.ctime)
         self.tcurrent.SetLabel(self.t)
         self.dcurrent.SetLabel(self.d)
-        self.tScurrent.SetLabel(self.tS)
-        self.tHcurrent.SetLabel(self.tH)
-        self.tHsetcurrent.SetLabel(self.tHset)
+        self.tempcurrent.SetLabel(self.temp)
+        self.setpointcurrent.SetLabel(self.setpoint)
         self.stabilitycurrent.SetLabel(self.stability)
         self.rAcurrent.SetLabel(self.rA)
         self.rBcurrent.SetLabel(self.rB)
         self.rhocurrent.SetLabel(self.rho)
         self.icurrent.SetLabel(self.i)
-        self.cyclecurrent.SetLabel(self.cycle)
         self.measurementcurrent.SetLabel(self.measurement)
 
     #end def
 
     #--------------------------------------------------------------------------
     def create_sizer(self):
-        sizer = wx.GridBagSizer(16,2)
+        sizer = wx.GridBagSizer(14,2)
 
         sizer.Add(self.titlePanel, (0, 0), span = (1,2), border=5, flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.linebreak1,(1,0), span = (1,2))
@@ -2354,33 +2199,29 @@ class StatusPanel(wx.Panel):
         sizer.Add(self.label_d, (4,0))
         sizer.Add(self.dcurrent, (4, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.label_tS, (5,0))
-        sizer.Add(self.tScurrent, (5, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_tH, (6,0))
-        sizer.Add(self.tHcurrent, (6, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_tHset, (7,0))
-        sizer.Add(self.tHsetcurrent, (7, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_stability, (8,0))
-        sizer.Add(self.stabilitycurrent, (8, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_temperature, (5,0))
+        sizer.Add(self.tempcurrent, (5, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_setpoint, (6,0))
+        sizer.Add(self.setpointcurrent, (6, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_stability, (7,0))
+        sizer.Add(self.stabilitycurrent, (7, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.label_rA, (9,0))
-        sizer.Add(self.rAcurrent, (9, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_rB, (10,0))
-        sizer.Add(self.rBcurrent, (10, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_rA, (8,0))
+        sizer.Add(self.rAcurrent, (8, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_rB, (9,0))
+        sizer.Add(self.rBcurrent, (9, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.label_rho, (11,0))
-        sizer.Add(self.rhocurrent, (11,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_rho, (10,0))
+        sizer.Add(self.rhocurrent, (10,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.label_i, (12,0))
-        sizer.Add(self.icurrent, (12, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_i, (11,0))
+        sizer.Add(self.icurrent, (11, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.label_cycle, (13,0))
-        sizer.Add(self.cyclecurrent, (13, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_measurement, (14,0))
-        sizer.Add(self.measurementcurrent, (14, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_measurement, (12,0))
+        sizer.Add(self.measurementcurrent, (12, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
 
-        sizer.Add(self.linebreak2, (15,0), span = (1,2))
+        sizer.Add(self.linebreak2, (13,0), span = (1,2))
 
         self.SetSizer(sizer)
     #end def
@@ -2557,11 +2398,9 @@ class TemperaturePanel(wx.Panel):
         wx.Panel.__init__(self, *args, **kwargs)
 
         global filePath
-
-        global tsampletemp_list
-        global sampletemp_list
-        global theatertemp_list
-        global heatertemp_list
+        global ttemp_list
+        global temp_list
+        global setpoint_list
 
         self.create_title("Temperature Panel")
         self.init_plot()
@@ -2571,10 +2410,9 @@ class TemperaturePanel(wx.Panel):
         self.celsius = u"\u2103"
 
 
-        pub.subscribe(self.OnSampleTemp, "Sample Temp")
-        pub.subscribe(self.OnTimeSampleTemp, "Time Sample Temp")
-        pub.subscribe(self.OnHeaterTemp, "Heater Temp")
-        pub.subscribe(self.OnTimeHeaterTemp, "Time Heater Temp")
+        pub.subscribe(self.OnTemp, "Temperature")
+        pub.subscribe(self.OnSetpoint, "Setpoint")
+        pub.subscribe(self.OnTime, "Time Temp")
 
         # For saving the plots at the end of data acquisition:
         pub.subscribe(self.save_plot, "Save_All")
@@ -2614,47 +2452,37 @@ class TemperaturePanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def OnTimeSampleTemp(self, msg):
-        self.ttS = float(msg)
+    def OnTime(self, msg):
+        self.time = float(msg)
 
     #end def
 
     #--------------------------------------------------------------------------
-    def OnSampleTemp(self, msg):
-        self.tS = float(msg)
-        sampletemp_list.append(self.tS)
-        tsampletemp_list.append(self.ttS)
+    def OnSetpoint(self, msg):
+        self.setpoint = float(msg)
     #end def
 
     #--------------------------------------------------------------------------
-    def OnTimeHeaterTemp(self, msg):
-        self.ttH = float(msg)
-
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnHeaterTemp(self, msg):
-        self.tH = float(msg)
-        heatertemp_list.append(self.tH)
-        theatertemp_list.append(self.ttH)
+    def OnTemp(self, msg):
+        self.temp = float(msg)
+        temp_list.append(self.temp)
+        setpoint_list.append(self.setpoint)
+        ttemp_list.append(self.time)
     #end def
 
     #--------------------------------------------------------------------------
     def init_plot(self):
         self.dpi = 100
-        self.colorTH = 'r'
-        self.colorTS = 'b'
+        self.colorSetpoint = 'r'
+        self.colorTemp = 'b'
 
         self.figure = Figure((6,2), dpi=self.dpi)
         self.subplot = self.figure.add_subplot(111)
 
-        self.lineTH, = self.subplot.plot(theatertemp_list,heatertemp_list, color=self.colorTH, linewidth=1)
-        self.lineTS, = self.subplot.plot(tsampletemp_list,sampletemp_list, color=self.colorTS, linewidth=1)
+        self.lineSetpoint, = self.subplot.plot(ttemp_list,setpoint_list, color=self.colorSetpoint, linewidth=1)
+        self.lineTemp, = self.subplot.plot(ttemp_list,temp_list, color=self.colorTemp, linewidth=1)
 
-        self.legend = self.figure.legend( (self.lineTH, self.lineTS), (r"$T_{heater}$",r"$T_{sample}$"), (0.15,0.70),fontsize=8)
-
-        #self.subplot.text(0.05, .95, r'$X(f) = \mathcal{F}\{x(t)\}$', \
-            #verticalalignment='top', transform = self.subplot.transAxes)
+        self.legend = self.figure.legend( (self.lineSetpoint, self.lineTemp), (r"$Setpoint$",r"$Temperature$"), (0.15,0.70),fontsize=8)
     #end def
 
     #--------------------------------------------------------------------------
@@ -2665,7 +2493,7 @@ class TemperaturePanel(wx.Panel):
 
         # Adjustable scale:
         if self.xmax_control.is_auto():
-            xmax = max(tsampletemp_list+theatertemp_list)
+            xmax = max(ttemp_list)
         else:
             xmax = float(self.xmax_control.manual_value())
         if self.xmin_control.is_auto():
@@ -2677,15 +2505,10 @@ class TemperaturePanel(wx.Panel):
         else:
             ymin = float(self.ymin_control.manual_value())
         if self.ymax_control.is_auto():
-            maxT = max(sampletemp_list+heatertemp_list)
+            maxT = max(setpoint_list+temp_list)
             ymax = maxT + abs(maxT)*0.3
         else:
             ymax = float(self.ymax_control.manual_value())
-
-        if len(tsampletemp_list) != len(sampletemp_list):
-            time.sleep(0.5)
-        if len(theatertemp_list) != len(heatertemp_list):
-            time.sleep(0.5)
 
         self.subplot.set_xlim([xmin, xmax])
         self.subplot.set_ylim([ymin, ymax])
@@ -2693,10 +2516,10 @@ class TemperaturePanel(wx.Panel):
         pylab.setp(self.subplot.get_xticklabels(), fontsize=8)
         pylab.setp(self.subplot.get_yticklabels(), fontsize=8)
 
-        self.lineTH, = self.subplot.plot(theatertemp_list,heatertemp_list, color=self.colorTH, linewidth=1)
-        self.lineTS, = self.subplot.plot(tsampletemp_list,sampletemp_list, color=self.colorTS, linewidth=1)
+        self.lineSetpoint, = self.subplot.plot(ttemp_list,setpoint_list, color=self.colorSetpoint, linewidth=1)
+        self.lineTemp, = self.subplot.plot(ttemp_list,temp_list, color=self.colorTemp, linewidth=1)
 
-        return (self.lineTH, self.lineTS)
+        return (self.lineSetpoint, self.lineTemp)
 
     #end def
 
