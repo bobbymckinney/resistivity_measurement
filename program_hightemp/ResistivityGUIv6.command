@@ -1,0 +1,1 @@
+python Dropbox/te_measurements/resistivity_measurement/program_hightemp/ResistivityGUIv6.py

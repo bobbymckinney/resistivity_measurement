@@ -1,1 +1,2 @@
-python Google\ Drive/RT_resistivity_program/RT_ResistivityGUIv1.py
+python Dropbox/te_measurements/resistivity_measurement/program_roomtemp/RT_ResistivityGUIv1.py
+

@@ -24,7 +24,6 @@ import matplotlib.animation as animation # For plotting
 import pylab
 import numpy as np
 import matplotlib.pyplot as plt
-import serial # for communicating with Lakeshore magnet power supply
 import visa # pyvisa, essential for communicating with the Keithley
 from threading import Thread # For threading the processes going on behind the GUI
 import time
@@ -37,49 +36,47 @@ from logging_utils import setup_logging_to_file, log_exception
 # for a fancy status bar:
 import EnhancedStatusBar as ESB
 
-# For finding sheet resistance:
-import RT_Resistivity_Processing_v1
-
 #==============================================================================
 # Keeps Windows from complaining that the port is already open:
 
-version = '1.0 (2015-06-29)'
+version = '1.0 (2015-12-21)'
 
 '''
 Global Variables:
 '''
 
 # Naming a data file:
-dataFile = 'Data_Backup.csv'
-finaldataFile = 'Data.csv'
+File12 = 'IV12.csv'
+File13 = 'IV13.csv'
+File24 = 'IV24.csv'
+File34 = 'IV34.csv'
 
-thickness = '0.1' #placeholder for sample thickness in cm
-
-current = .01 # (A) Current that is sourced by the k2400
 APP_EXIT = 1 # id for File\Quit
-measurement_time = 5*60 # Time for a measurement
-
-maxCurrent = .1 # (A) Restricts the user to a max current
 
 abort_ID = 0 # Abort method
 
 # Global placers for instruments
 k2700 = ''
 k2400 = ''
-k2182 = ''
 
 # placer for directory
 filePath = 'global file path'
 
 # placer for files to be created
-myfile = 'global file'
+iv12file = 'global file'
+iv13file = 'global file'
+iv24file = 'global file'
+iv34file = 'global file'
 
 # Placers for the GUI plots:
-r_A_list = [0]
-t_A_list = [0]
-r_B_list = [0]
-t_B_list = [0]
-
+i12list = []
+v12list = []
+i13list = []
+v13list = []
+i24list = []
+v24list = []
+i34list = []
+v34list = []
 
 #ResourceManager for visa instrument control
 ResourceManager = visa.ResourceManager()
@@ -241,37 +238,6 @@ class Keithley_2400:
 ###############################################################################
 
 ###############################################################################
-class Keithley_2182:
-    ''' NanoVoltMeter '''
-    #--------------------------------------------------------------------------
-    def __init__(self, instr):
-        self.ctrl = ResourceManager.open_resource(instr)
-        
-        self.ctrl.write(":TRIGger:SEQuence1:COUNt 1")
-        self.ctrl.write(":TRIGger:SEQuence1:DELay 0") # Set count rate
-        self.ctrl.write(":SENSe:FUNCtion VOLTage")
-        self.ctrl.write(":SENS:VOLT:CHAN1:RANG:AUTO ON")
-        self.ctrl.write(":SENSe1:VOLTage:DC:NPLCycles 5") # Sets integration period based on frequency
-    #end init
-        
-    #--------------------------------------------------------------------------
-    def fetch(self):
-        """ 
-        Scan the channel and take a reading 
-        """
-        #self.write(":ROUTe:SCAN:INTernal:CCOunt 1") # Specify number of readings on channel 1
-        self.ctrl.write(":SENSe:CHANnel 1")
-        data = self.ctrl.query(":SENSe:DATA:FRESh?")
-        #print str(data)[0:15]
-        #print data
-        return str(data)[0:15] # Fetches Reading
-
-    #end def
-
-#end class
-###############################################################################
-
-###############################################################################
 class Setup:
     """
     Call this class to run the setup for the Keithley and the PID.
@@ -287,29 +253,22 @@ class Setup:
         # Define Keithley instrument ports:
         self.k2700 = k2700 = Keithley_2700('GPIB0::16::INSTR') # MultiMeter for Matrix Card operation
         self.k2400 = k2400 = Keithley_2400('GPIB0::24::INSTR') # SourceMeter
-        self.k2182 = k2182 = Keithley_2182('GPIB0::7::INSTR') # NanoVoltMeter
-
 
 #end class
 ###############################################################################
 
 ###############################################################################
-class InitialCheck:
+class TakeData:
     #--------------------------------------------------------------------------
     def __init__(self):
         global k2700
         global k2400
+        global iv12file, iv13file, iv24file, iv34file
         
-
-
         self.k2700 = k2700
         self.k2400 = k2400
-
-
         self.delay = .5
         self.voltage = .1
-
-
 
         self.setupIV()
 
@@ -323,7 +282,7 @@ class InitialCheck:
         self.measure_contacts()
 
         self.resetSourcemeter()
-        self.create_plot()
+        #self.create_plot()
 
 
     #end init
@@ -356,10 +315,11 @@ class InitialCheck:
         print('measure r_12')
         self.k2700.openChannels('125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
-        self.r_12 = self.checkIV('A','B')
+        self.r_12 = self.checkIV('1','2',iv12file)
         self.k2700.closeChannels('125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
         print "r12: %f Ohm" % (self.r_12)
+        self.updateGUI(stamp='R12', data=self.r12)
 
         time.sleep(self.delay)
 
@@ -369,12 +329,13 @@ class InitialCheck:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
-        self.r_13 = self.checkIV('A','C')
+        self.r_13 = self.checkIV('1','3',iv13file)
         self.k2700.closeChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('119')
         print(self.k2700.get_closedChannels())
         print "r13: %f Ohm" % (self.r_13)
+        self.updateGUI(stamp='R13', data=self.r13)
 
         time.sleep(self.delay)
 
@@ -384,12 +345,13 @@ class InitialCheck:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
-        self.r_24 = self.checkIV('B','D')
+        self.r_24 = self.checkIV('2','4',iv24file)
         self.k2700.closeChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
         print "r24: %f Ohm" % (self.r_24)
+        self.updateGUI(stamp='R24', data=self.r24)
 
         time.sleep(self.delay)
 
@@ -399,44 +361,51 @@ class InitialCheck:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
-        self.r_34 = self.checkIV('C','D')
+        self.r_34 = self.checkIV('3','4',iv34file)
         self.k2700.closeChannels('117, 125, 126, 127, 128')
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('118')
         print(self.k2700.get_closedChannels())
         print "r34: %f Ohm" % (self.r_34)
+        self.updateGUI(stamp='R34', data=self.r34)
 
     #end def
     #--------------------------------------------------------------------------
 
     #--------------------------------------------------------------------------
-    def checkIV(self,p1,p2):
+    def checkIV(self,p1,p2,file):
         print('check IV')
         n = 6
         I = []
-        V = [1000*self.voltage*(x)/n for x in range(-n,n+1)]
+        V = [self.voltage*(x)/n for x in range(-n,n+1)]
 
         for v in V:
-            self.k2400.ctrl.write(":SOUR:VOLT:LEV "+str(float(v)/1000))
+            self.k2400.ctrl.write(":SOUR:VOLT:LEV "+str(v))
             self.k2400.ctrl.write(":OUTP ON")
             time.sleep(self.delay)
             i = float(self.k2400.ctrl.query(":READ?"))
             time.sleep(self.delay)
             self.k2400.ctrl.write(":OUTP OFF")
-            print 'v: %f\ni: %f'%(v,i)
+            print 'v: %f\ti: %f'%(v,i)
+            self.updateGUI(stamp='V'+p1+p2, data=v)
+            self.updateGUI(stamp='I'+p1+p2, data=i)
             I.append(i)
             time.sleep(self.delay)
+            file.write('%f,%f\n' %(v,i))
         #end for
 
 
         fit = self.polyfit(V,I,1)
 
         self.Data[p1+p2] = fit
-
+        file.write('\nslope: %f\noffset: %f\nr-squared:%f\n'%(fit['polynomial'][0],fit['polynomial'][1],fit['r-squared']))
+        
         self.Data[p1+p2]['current'] = I
         self.Data[p1+p2]['voltage'] = V
 
-        r = 1/(fit['polynomial'][0])
+        r = 1/(fit['polynomial'][0])   
+        file.write('\nresitance (Ohm): %f'%(r))
+        self.updateGUI(stamp='R'+p1+p2, data=r)
 
         return r
     #end def
@@ -513,12 +482,33 @@ class InitialCheck:
         wx.CallAfter(pub.sendMessage, stamp, msg=data)
 
     #end def
+        
+    #--------------------------------------------------------------------------
+    def save_files(self):
+        ''' Function saving the files after the data acquisition loop has been
+            exited. 
+        '''
+        
+        print('Save Files')
+        global iv12file, iv13file, iv24file, iv34file
+        
+        iv12file.close() # Close the file
+        iv13file.close()
+        iv24file.close()
+        iv34file.close()
+        
+        # Save the GUI plots
+        global save_plots_ID
+        save_plots_ID = 1
+        self.updateGUI(stamp='Save_All', data='Save')
+    
+    #end def
 
 #end class
 ###############################################################################
 
 ###############################################################################
-class ProcessThreadRun(Thread):
+class ProcessThread(Thread):
     """
     Thread that runs the operations behind the GUI. This includes measuring
     and plotting.
@@ -540,311 +530,6 @@ class ProcessThreadRun(Thread):
         #td = TakeDataTest()
     #end def
         
-#end class
-###############################################################################
-
-###############################################################################
-class TakeData:
-    ''' Takes measurements and saves them to file. '''
-    #--------------------------------------------------------------------------
-    def __init__(self):
-        global abort_ID
-        global current
-        global cycle
-        global measurement_time
-        
-        self.k2400 = k2400
-        self.k2700 = k2700
-        self.k2182 = k2182
-        
-        self.delay = 1 # time for the keithley to take a steady measurement
-        
-        self.current = current
-        self.thickness = float(thickness)
-        self.measurement_time = measurement_time 
-        
-        self.k2400.set_current(self.current)
-        
-        self.measurement = 'OFF'
-        self.updateGUI(stamp='Measurement', data=self.measurement)
-        self.measurement_time_left = '-'
-        
-        self.exception_ID = 0
-        
-        self.updateGUI(stamp='Status Bar', data='Running')
-        
-        self.start = time.time()
-        
-        try:
-            self.measurement='ON'
-            self.updateGUI(stamp='Measurement', data=self.measurement)
-            while abort_ID == 0:
-                self.safety_check()
-                self.begin_measurement() # Resistance measurements
-                
-                self.measurement_time_left = int(self.measurement_time - ( time.time() - self.start))
-                
-                if ( self.measurement_time_left < 0 ):
-                    self.updateGUI(stamp="Status Bar", data='-mea')
-                    abort_ID = 1
-                #end if
-                else:
-                    self.updateGUI(stamp="Status Bar", data=str(self.measurement_time_left) + 'mea')
-   
-            #end while
-        #end try
-                
-        except exceptions.Exception as e:
-            log_exception(e)
-            
-            abort_ID = 1
-            
-            self.exception_ID = 1
-            
-            print "Error Occurred, check error_log.log"
-        #end except
-            
-        if self.exception_ID == 1:
-            self.updateGUI(stamp='Status Bar', data='Exception Occurred')
-        #end if    
-        else:
-            self.updateGUI(stamp='Status Bar', data='Finished, Ready')
-        #end else
-        self.measurement = 'OFF'
-        self.updateGUI(stamp='Measurement', data=self.measurement)
-        self.save_files()
-        
-        self.k2400.turn_source_off()
-        
-        wx.CallAfter(pub.sendMessage, 'Post Process')        
-        wx.CallAfter(pub.sendMessage, 'Enable Buttons')
-        wx.CallAfter(pub.sendMessage, 'Join Thread')
-        
-    #end init
-   
-    #--------------------------------------------------------------------------
-    def safety_check(self):
-        pass
-    #end def
-        
-    #--------------------------------------------------------------------------
-    def begin_measurement(self):
-  
-        
-        
-        # short the matrix card
-        self.k2700.closeChannels('117, 125, 126, 127, 128')
-        print(self.k2700.get_closedChannels())
-        time.sleep(self.delay)
-        
-        ### RESISTIVITY MEASUREMENTS ###
-        self.Resistivity_Measurement()
-        
-        self.all_time = (self.t_A + self.t_B)/2
-        
-        self.resistances1 = (self.t_1234, self.r_1234, self.t_3412, self.r_3412, self.t_1324, self.r_1324, self.t_2413, self.r_2413)
-        
-        self.write_data_to_file()
-        
-    #end def
-    
-    #--------------------------------------------------------------------------
-    def Resistivity_Measurement(self):
-        ### r_A: 
-        # r_12,34
-        print('measure r_12,34')
-        self.k2700.openChannels('125, 127, 128')
-        print(self.k2700.get_closedChannels())
-        self.r_1234, self.t_1234 = self.delta_method()
-        #self.r_1234 = abs(self.r_1234)
-        self.k2700.closeChannels('125, 127, 128')
-        print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1234", data=self.t_1234)
-        self.updateGUI(stamp="R_1234", data=self.r_1234*1000)
-        print "t_r1234: %.2f s\tr1234: %f Ohm" % (self.t_1234, self.r_1234)
-        
-        time.sleep(self.delay)
-        
-        # r_34,12
-        print('measure r_34,12')
-        self.k2700.closeChannels('118')
-        print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('117, 126, 127, 128')
-        print(self.k2700.get_closedChannels())
-        self.r_3412, self.t_3412 = self.delta_method()
-        #self.r_3412 = abs(self.r_3412)
-        self.k2700.closeChannels('117, 126, 127, 128')
-        print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('118')
-        print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_3412", data=self.t_3412)
-        self.updateGUI(stamp="R_3412", data=self.r_3412*1000)
-        print "t_r3412: %.2f s\tr3412: %f Ohm" % (self.t_3412, self.r_3412)
-        
-        time.sleep(self.delay)
-        
-        # Calculate r_A
-        self.r_A = (self.r_1234 + self.r_3412)/2
-        self.t_A = time.time()-self.start
-        self.updateGUI(stamp="Time R_A", data=self.t_A)
-        self.updateGUI(stamp="R_A", data=self.r_A)
-        print "t_rA: %.2f s\trA: %f Ohm" % (self.t_A, self.r_A)
-        
-        ### r_B:
-        # r_13,24
-        print('measure r_13,24')
-        self.k2700.closeChannels('119')
-        print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('117, 125, 126, 127')
-        print(self.k2700.get_closedChannels())
-        self.r_1324, self.t_1324 = self.delta_method()
-        #self.r_1324 = abs(self.r_1324)
-        self.k2700.closeChannels('117, 125, 126, 127')
-        print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('119')
-        print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_1324", data=self.t_1324)
-        self.updateGUI(stamp="R_1324", data=self.r_1324*1000)
-        print "t_r1324: %.2f s\tr1324: %f Ohm" % (self.t_1324, self.r_1324)
-        
-        time.sleep(self.delay)
-        
-        # r_24,13
-        print('measure r_24,13')
-        self.k2700.closeChannels('120')
-        print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('117, 125, 126, 128')
-        print(self.k2700.get_closedChannels())
-        self.r_2413, self.t_2413 = self.delta_method()
-        #self.r_2413 = abs(self.r_2413)
-        self.k2700.closeChannels('117, 125, 126')
-        print(self.k2700.get_closedChannels())
-        self.k2700.openChannels('120')
-        print(self.k2700.get_closedChannels())
-        self.updateGUI(stamp="Time R_2413", data=self.t_2413)
-        self.updateGUI(stamp="R_2413", data=self.r_2413*1000)
-        print "t_r2413: %.2f s\tr2413: %f Ohm" % (self.t_2413, self.r_2413)
-        
-        # Calculate r_B
-        self.r_B = (self.r_1324 + self.r_2413)/2
-        self.t_B = time.time()-self.start
-        self.updateGUI(stamp="Time R_B", data=self.t_B)
-        self.updateGUI(stamp="R_B", data=self.r_B)
-        print "t_rB: %.2f s\trB: %f Ohm" % (self.t_B, self.r_B)
-    #end def
-    
-    #--------------------------------------------------------------------------
-    def delta_method(self):
-        print('Delta Method')
-        t1 = time.time() - self.start
-        # delta method:
-        # positive V1:
-        self.k2400.turn_source_on()
-        self.k2400.set_current(float(self.current))
-        self.updateGUI(stamp="Current", data=float(self.current)*1000)
-        time.sleep(self.delay) 
-        v1p = float( self.k2182.fetch() )
-        time.sleep(self.delay) 
-        # negative V:
-        self.k2400.set_current(-1*float(self.current))
-        self.updateGUI(stamp="Current", data=-1*float(self.current)*1000)
-        time.sleep(self.delay)
-        vn = float( self.k2182.fetch() )
-        time.sleep(self.delay) 
-        t2 = time.time() - self.start
-     
-        # positive V2:
-        self.k2400.set_current(float(self.current))
-        self.updateGUI(stamp="Current", data=float(self.current)*1000)
-        time.sleep(self.delay)
-        v2p = float( self.k2182.fetch() )
-        time.sleep(self.delay) 
-        self.k2400.turn_source_off()
-        self.updateGUI(stamp="Current", data=0)
-     
-        t3 = time.time() - self.start
-    
-        print 'Delta Method' 
-        print 'i: %f Amps' % float(self.current)
-        print "v: %f V, %f V, %f V" % (v1p, vn, v2p)
-     
-        r = (v1p + v2p - 2*vn)/(4*float(self.current))
-     
-        avgt = (t3 + t2 + t1)/3
-         
-        return r, avgt
-     
-    #end def
-    
-    #--------------------------------------------------------------------------
-    def updateGUI(self, stamp, data):
-        """
-        Sends data to the GUI (main thread), for live updating while the process is running
-        in another thread.
-        """
-        time.sleep(0.1)
-        wx.CallAfter(pub.sendMessage, stamp, msg=data)
-        
-    #end def
-        
-    #--------------------------------------------------------------------------
-    def write_data_to_file(self):
-        
-        print('Write data to file')
-        myfile.write('%.2f,' % (self.all_time) )
-        print 'time: ', self.all_time
-        myfile.write('%s,' % (self.thickness))
-        print 'thickness (cm): ', self.thickness
-        myfile.write('%.2f,%.9f,%.2f,%.9f,%.2f,%.9f,%.2f,%.9f,' % self.resistances1)
-        #print 'resistances\n', self.resistances
-        myfile.write('%.9f,%.9f\n' % (self.r_A, self.r_B) )
-        print 'r_A (Ohm): %.9f\nr_B (Ohm): %.9f\n' % (self.r_A, self.r_B)
-    #end def
-        
-    #--------------------------------------------------------------------------
-    def save_files(self):
-        ''' Function saving the files after the data acquisition loop has been
-            exited. 
-        '''
-        
-        print('Save Files')
-        
-        global dataFile
-        global finaldataFile
-        global myfile
-        
-        stop = time.time()
-        end = datetime.now() # End time
-        totalTime = stop - self.start # Elapsed Measurement Time (seconds)
-        
-        myfile.close() # Close the file
-        
-        myfile = open(dataFile, 'r') # Opens the file for Reading
-        contents = myfile.readlines() # Reads the lines of the file into python set
-        myfile.close()
-        
-        # Adds elapsed measurement time to the read file list
-        endStr = 'End Time: %s \nElapsed Measurement Time: %s Seconds \n \n' % (str(end), str(totalTime))
-        contents.insert(1, endStr) # Specify which line and what value to insert
-        # NOTE: First line is line 0
-        
-        # Writes the elapsed measurement time to the final file
-        myfinalfile = open(finaldataFile,'w')
-        contents = "".join(contents)
-        myfinalfile.write(contents)
-        myfinalfile.close()
-        
-        inFile = filePath + '/Data.csv'
-        outFile = filePath + '/Final Data.csv'
-        RT_Resistivity_Processing_v1.output_file(inFile, outFile)
-        
-        # Save the GUI plots
-        global save_plots_ID
-        save_plots_ID = 1
-        self.updateGUI(stamp='Save_All', data='Save')
-    
-    #end def
-
 #end class
 ###############################################################################
 
@@ -920,60 +605,23 @@ class UserPanel(wx.Panel):
     def __init__(self, *args, **kwargs):
         wx.Panel.__init__(self, *args, **kwargs)
         
-        global current
-        global thickness
-        global measurement_time
-        
-        self.current = current*1000
-        self.measurement_time = measurement_time/60
-        
-        self.create_title("User Panel") # Title
-        
-        self.font2 = wx.Font(11, wx.DEFAULT, wx.NORMAL, wx.NORMAL)
-        
-        self.current_control()
-        self.thickness_control()
-        self.measurement_time_control()
-        
-        self.maxCurrent_label()
-        
-        self.linebreak1 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak2 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak3 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak4 = wx.StaticLine(self, pos=(-1,-1), size=(600,1), style=wx.LI_HORIZONTAL)
-        
+        self.linebreak = wx.StaticLine(self, pos=(-1,-1), size=(300,1), style=wx.LI_HORIZONTAL)
         self.run_stop() # Run and Stop buttons
         
         self.create_sizer() # Set Sizer for panel
+        
         
         #pub.subscribe(self.post_process_data, "Post Process")
         pub.subscribe(self.enable_buttons, "Enable Buttons")
         
     #end init 
-    
-    #--------------------------------------------------------------------------    
-    def create_title(self, name):
-        self.titlePanel = wx.Panel(self, -1)
-        title = wx.StaticText(self.titlePanel, label=name)
-        font_title = wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.BOLD)
-        title.SetFont(font_title)
-        
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
-        hbox.Add((0,-1))
-        hbox.Add(title, 0, wx.LEFT, 5)
-        
-        self.titlePanel.SetSizer(hbox)    
-    #end def
+
     
     #--------------------------------------------------------------------------
     def run_stop(self):
         self.run_stopPanel = wx.Panel(self, -1)
         rs_sizer = wx.GridBagSizer(3, 3)
         
-        
-        self.btn_check = btn_check = wx.Button(self.run_stopPanel, label='check', style=0, size=(60,30)) # Run Button
-        btn_check.SetBackgroundColour((0,0,255))
-        caption_check = wx.StaticText(self.run_stopPanel, label='*check contacts')
         self.btn_run = btn_run = wx.Button(self.run_stopPanel, label='run', style=0, size=(60,30)) # Run Button
         btn_run.SetBackgroundColour((0,255,0))
         caption_run = wx.StaticText(self.run_stopPanel, label='*run measurement')
@@ -981,21 +629,18 @@ class UserPanel(wx.Panel):
         btn_stop.SetBackgroundColour((255,0,0))
         caption_stop = wx.StaticText(self.run_stopPanel, label = '*quit operation')
         
-        btn_check.Bind(wx.EVT_BUTTON, self.check)
         btn_run.Bind(wx.EVT_BUTTON, self.run)
         btn_stop.Bind(wx.EVT_BUTTON, self.stop)
         
         controlPanel = wx.StaticText(self.run_stopPanel, label='Control Panel')
         controlPanel.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.BOLD))
         
-        rs_sizer.Add(controlPanel,(0,0), span=(1,3),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        rs_sizer.Add(btn_check,(1,0),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        rs_sizer.Add(caption_check,(2,0),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        rs_sizer.Add(controlPanel,(0,0), span=(1,2),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        rs_sizer.Add(btn_run,(1,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        rs_sizer.Add(caption_run,(2,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        rs_sizer.Add(btn_stop,(1,2),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        rs_sizer.Add(caption_stop,(2,2),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        rs_sizer.Add(btn_run,(1,0),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        rs_sizer.Add(caption_run,(2,0),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        rs_sizer.Add(btn_stop,(1,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        rs_sizer.Add(caption_stop,(2,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         
         self.run_stopPanel.SetSizer(rs_sizer)
         
@@ -1005,14 +650,8 @@ class UserPanel(wx.Panel):
     
     #--------------------------------------------------------------------------
     def run(self, event):
-        global k2700, k2400, k2182
-        global dataFile
-        global finaldataFile
-        global myfile
-        global r_A_list, t_A_list, r_B_list, t_B_list
-        global r_1234_list, r_3412_list, r_1324_list, r_2413_list
-        global t_1234_list, t_3412_list, t_1324_list, t_2413_list
-        global current, measurement_time
+        global File12, File13, File24, File34
+        global iv12file, iv13file, iv24file, iv34file
         global abort_ID
             
         try:
@@ -1020,26 +659,29 @@ class UserPanel(wx.Panel):
             self.name_folder()
             
             if self.run_check == wx.ID_OK:
-                
-                file = dataFile # creates a data file
-                myfile = open(dataFile, 'w') # opens file for writing/overwriting
                 begin = datetime.now() # Current date and time
-                myfile.write('Start Time: ' + str(begin) + '\n')
                 
-                resistances1 = 't_1234,r_1234,t_3412,r_3412,t_1324,r_1324,t_2413,r_2413'
-                headers = ( 'time (s),thickness (cm),%s,' % (resistances1) + 'r_A,r_B' )
-                          
-                myfile.write(headers)
-                myfile.write('\n')
+                iv12file = open(File12, 'w') # opens file for writing/overwriting
+                iv13file = open(File13, 'w')
+                iv24file = open(File24, 'w')
+                iv34file = open(File34, 'w')
+                
+                iv12file.write('Start Time: ' + str(begin) + '\n')
+                iv13file.write('Start Time: ' + str(begin) + '\n')
+                iv24file.write('Start Time: ' + str(begin) + '\n')
+                iv34file.write('Start Time: ' + str(begin) + '\n')
+
+                iv12file.write('V_12,I_12\n')
+                iv12file.write('V_13,I_13\n')
+                iv12file.write('V_24,I_24\n')
+                iv12file.write('V_34,I_34\n')
                 
                 abort_ID = 0
                 
                 #start the threading process
-                sp = Setup()
-                thread = ProcessThreadRun()
+                thread = ProcessThread()
                 
                 self.btn_run.Disable()
-                self.btn_check.Disable()
                 self.btn_stop.Enable()
                 
             #end if
@@ -1072,7 +714,7 @@ class UserPanel(wx.Panel):
             
         else:
             date = str(datetime.now())
-            self.folder_name = 'Room Temp Resistivity Data %s.%s.%s' % (date[0:13], date[14:16], date[17:19])
+            self.folder_name = 'IV Data %s.%s.%s' % (date[0:13], date[14:16], date[17:19])
             
             self.choose_dir()
             
@@ -1124,14 +766,6 @@ class UserPanel(wx.Panel):
         #end if
     #end def
     
-    #--------------------------------------------------------------------------   
-    def check(self, event):
-        
-        ic = InitialCheck()
-        
-        
-    #end def
-    
     #--------------------------------------------------------------------------
     def stop(self, event):
         global abort_ID
@@ -1140,182 +774,13 @@ class UserPanel(wx.Panel):
         self.enable_buttons
         
     #end def        
-        
-    #--------------------------------------------------------------------------
-    def current_control(self):
-        global current
-        self.current_Panel = wx.Panel(self, -1)        
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.label_current = wx.StaticText(self, label="Current:")
-        self.label_current.SetFont(self.font2)
-        self.text_current = text_current = wx.StaticText(self.current_Panel, label=str(self.current) + ' mA')
-        text_current.SetFont(self.font2)
-        self.edit_current = edit_current = wx.TextCtrl(self.current_Panel, size=(40, -1))
-        self.btn_current = btn_current = wx.Button(self.current_Panel, label="save", size=(50, -1))
-        text_guide = wx.StaticText(self.current_Panel, label="The current sourced to \nthe sample.")
-        text_guide.SetFont(self.font2)
-        
-        btn_current.Bind(wx.EVT_BUTTON, self.save_current)
-        
-        hbox.Add((0, -1))
-        #hbox.Add(self.label_current, 0 , wx.LEFT, 5)
-        hbox.Add(text_current, 0, wx.LEFT, 5)
-        hbox.Add(edit_current, 0, wx.LEFT, 11)
-        hbox.Add(btn_current, 0, wx.LEFT, 5)
-        hbox.Add(text_guide, 0, wx.LEFT, 5)
-        
-        self.current_Panel.SetSizer(hbox)
-        
-    #end def   
-    
-    #--------------------------------------------------------------------------
-    def save_current(self, e):
-        global current
-        try:
-            self.k2400 = k2400 # SourceMeter
-            
-            val = self.edit_current.GetValue()
-            
-            if float(val)/1000 > maxCurrent:
-                current = str(maxCurrent)
-            if float(val)/1000 < -maxCurrent:
-                current = str(-maxCurrent)
-                
-            self.text_current.SetLabel(val + ' mA')
-            
-            current = float(val)/1000
-            self.current = current*1000
-            
-            self.k2400.change_current_range(current)
-            self.k2400.set_current(current)
-            
-        except ValueError:
-            wx.MessageBox("Invalid input. Must be a number.", "Error")
-            
-        except visa.VisaIOError:
-            wx.MessageBox("The SourceMeter is not connected!", "Error")
-        #end except
-        
-    #end def
-    
-    #--------------------------------------------------------------------------
-    def thickness_control(self):
-        global thickness
-        self.thickness_Panel = wx.Panel(self, -1)        
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.label_thickness = wx.StaticText(self, label="Sample Thickness:")
-        self.label_thickness.SetFont(self.font2)
-        self.text_thickness = text_thickness = wx.StaticText(self.thickness_Panel, label=thickness + ' cm')
-        text_thickness.SetFont(self.font2)
-        self.edit_thickness = edit_thickness = wx.TextCtrl(self.thickness_Panel, size=(40, -1))
-        self.btn_thickness = btn_thickness = wx.Button(self.thickness_Panel, label="save", size=(50, -1))
-        text_guide = wx.StaticText(self.thickness_Panel, label="The thickness of \nthe sample.")
-        text_guide.SetFont(self.font2)
-        btn_thickness.Bind(wx.EVT_BUTTON, self.save_thickness)
-        
-        hbox.Add((0, -1))
-        #hbox.Add(self.label_current, 0 , wx.LEFT, 5)
-        hbox.Add(text_thickness, 0, wx.LEFT, 5)
-        hbox.Add(edit_thickness, 0, wx.LEFT, 11)
-        hbox.Add(btn_thickness, 0, wx.LEFT, 5)
-        hbox.Add(text_guide, 0, wx.LEFT, 5)
-        
-        self.thickness_Panel.SetSizer(hbox)
-        
-    #end def  
-    
-    #--------------------------------------------------------------------------
-    def save_thickness(self, e):
-        global thickness
-        val = self.edit_thickness.GetValue()    
-        self.text_thickness.SetLabel(val + ' cm')
-        thickness = val
-        wx.CallAfter(pub.sendMessage, "Sample Thickness", msg=thickness)
-        
-    #end def
-    
-    #--------------------------------------------------------------------------
-    def measurement_time_control(self):
-        global measurement_time
-        self.measurement_time_Panel = wx.Panel(self, -1)        
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
-        
-        self.label_measurement_time = wx.StaticText(self, 
-                                            label="Measurement Time:"
-                                            )
-        self.label_measurement_time.SetFont(self.font2)
-        self.text_measurement_time = text_measurement_time = wx.StaticText(self.measurement_time_Panel, label=str(self.measurement_time) + ' min')
-        text_measurement_time.SetFont(self.font2)
-        self.edit_measurement_time = edit_measurement_time = wx.TextCtrl(self.measurement_time_Panel, size=(40, -1))
-        self.btn_measurement_time = btn_measurement_time = wx.Button(self.measurement_time_Panel, label="save", size=(50, -1))
-        text_guide = wx.StaticText(self.measurement_time_Panel, label=('How long each measurement \nwill take in minutes.' 
-                                                                      )
-                                   )
-        text_guide.SetFont(self.font2)
-        btn_measurement_time.Bind(wx.EVT_BUTTON, self.save_measurement_time)
-        
-        hbox.Add((0, -1))
-        #hbox.Add(self.label_equil_threshold, 0 , wx.LEFT, 5)
-        hbox.Add(text_measurement_time, 0, wx.LEFT, 5)
-        hbox.Add(edit_measurement_time, 0, wx.LEFT, 32)
-        hbox.Add(btn_measurement_time, 0, wx.LEFT, 5)
-        hbox.Add(text_guide, 0, wx.LEFT, 5)
-        
-        self.measurement_time_Panel.SetSizer(hbox)
-        
-    #end def  
-    
-    #--------------------------------------------------------------------------
-    def save_measurement_time(self, e):
-        global measurement_time
-        
-        try:
-            val = self.edit_measurement_time.GetValue()
-            self.measurement_time = float(val)
-            self.text_measurement_time.SetLabel(val + ' min')
-            measurement_time = self.measurement_time*60
-        except ValueError:
-
-            wx.MessageBox("Invalid input. Must be a number.", "Error")
-            
-    #end def
-    
-    #--------------------------------------------------------------------------                
-    def maxCurrent_label(self):
-        self.maxCurrent_Panel = wx.Panel(self, -1)
-        maxCurrent_label = wx.StaticText(self.maxCurrent_Panel, label='Max Current:')
-        maxCurrent_text = wx.StaticText(self.maxCurrent_Panel, label='%s mA' % str(maxCurrent*1000))
-        maxCurrent_text.SetFont(self.font2)
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
-        hbox.Add((0,-1))
-        hbox.Add(maxCurrent_label, 0, wx.LEFT, 5)
-        hbox.Add(maxCurrent_text, 0, wx.LEFT, 5)
-        
-        self.maxCurrent_Panel.SetSizer(hbox)
-    
-    #end def
     
     #--------------------------------------------------------------------------
     def create_sizer(self):
       
-        sizer = wx.GridBagSizer(7,2)
-        
-        sizer.Add(self.titlePanel, (0, 1), span=(1,2), flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_current, (1, 1))
-        sizer.Add(self.current_Panel, (1, 2))
-        
-        sizer.Add(self.label_thickness, (2, 1))
-        sizer.Add(self.thickness_Panel, (2, 2))
-        
-        sizer.Add(self.label_measurement_time, (3,1))
-        sizer.Add(self.measurement_time_Panel, (3, 2))
-        sizer.Add(self.maxCurrent_Panel, (4, 1), span=(1,2))      
-        
-        sizer.Add(self.linebreak4, (5,1),span = (1,2))
-        sizer.Add(self.run_stopPanel, (6,1),span = (1,2), flag=wx.ALIGN_CENTER_HORIZONTAL)
-        
+        sizer = wx.GridBagSizer(1,2)
+        sizer.Add(self.run_stopPanel, (0,1),span = (1,2), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.linebreak, (1,1),span = (1,2))
         self.SetSizer(sizer)
         
     #end def
@@ -1342,16 +807,12 @@ class StatusPanel(wx.Panel):
         
         self.ctime = str(datetime.now())[11:19]
         self.t='0:00:00'
-        self.d=str(0.00)
-        self.rA=str(0.00)
-        self.rB=str(0.00)
-        self.i = str(0.00)
-        self.measurement = 'OFF'
-        self.rho = str(0.00)
+        self.r12=str(0.00)
+        self.r13=str(0.00)
+        self.r24=str(0.00)
+        self.r34=str(0.00)
         
         self.ohm = u"\u2126"
-        self.perp = u"\u27c2"
-        self.mu = u"\u00b5"
 
         self.create_title("Status Panel")
         self.linebreak1 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
@@ -1361,17 +822,12 @@ class StatusPanel(wx.Panel):
         self.linebreak3 = wx.StaticLine(self, pos=(-1,-1), size=(1,300), style=wx.LI_VERTICAL)
         
         # Updates from running program
-        pub.subscribe(self.OnTime, "Time R_B")
-        pub.subscribe(self.OnTime, "Time R_A")
-
-        pub.subscribe(self.OnThickness, "Sample Thickness")
+        pub.subscribe(self.OnTime, "Time")
         
-        pub.subscribe(self.OnR_A, "R_A")
-        pub.subscribe(self.OnR_B, "R_B")
-        
-        pub.subscribe(self.OnCurrent, "Current")
-        
-        pub.subscribe(self.OnMeasurement, "Measurement")
+        pub.subscribe(self.OnR12, "R12")
+        pub.subscribe(self.OnR13, "R13")
+        pub.subscribe(self.OnR24, "R24")
+        pub.subscribe(self.OnR34, "R34")
         
         #self.update_values()
         
@@ -1380,15 +836,26 @@ class StatusPanel(wx.Panel):
     #end init
 
     #--------------------------------------------------------------------------
-    def OnR_A(self, msg):
-        self.rA = '%.2f'%(float(msg)*1000) 
+    def OnR12(self, msg):
+        self.r12 = '%.2f'%(float(msg)*1000) 
         self.update_values()  
     #end def
 
     #--------------------------------------------------------------------------
-    def OnR_B(self, msg):
-        self.rB = '%.2f'%(float(msg)*1000)
-        self.instant_resistivity() 
+    def OnR13(self, msg):
+        self.r13 = '%.2f'%(float(msg)*1000)
+        self.update_values()  
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def OnR24(self, msg):
+        self.r24 = '%.2f'%(float(msg)*1000) 
+        self.update_values()  
+    #end def
+
+    #--------------------------------------------------------------------------
+    def OnR34(self, msg):
+        self.r34 = '%.2f'%(float(msg)*1000)
         self.update_values()  
     #end def
 
@@ -1419,47 +886,6 @@ class StatusPanel(wx.Panel):
         self.update_values()   
     #end def
     
-    #--------------------------------------------------------------------------
-    def OnThickness(self, msg):
-        self.d = '%.2f'%(float(msg))  
-        self.update_values()    
-    #end def
-    
-    #--------------------------------------------------------------------------
-    def OnMeasurement(self, msg):
-        self.measurement = msg 
-        self.update_values()    
-    #end def
-    
-    #--------------------------------------------------------------------------
-    def instant_resistivity(self):
-        global thickness
-        delta = 0.0005 # error limit (0.05%)
-        lim = 1
-        rA = float(self.rA)/1000
-        rB = float(self.rB)/1000
-    
-        z1 = (2*np.log(2))/(np.pi*(rA + rB))
-        
-        
-    
-        # Algorithm taken from http://www.nist.gov/pml/div683/hall_algorithm.cfm
-        while (lim > delta):
-            y = 1/np.exp(np.pi*z1*rA) + 1/np.exp(np.pi*z1*rB)
-    
-            z2 = z1 - (1/np.pi)*((1-y)/(rA/np.exp(np.pi*z1*rA) + rB/np.exp(np.pi*z1*rB)))
-        
-            lim = abs(z2 - z1)/z2
-            
-            z1 = z2
-
-                
-            
-        #end while
-        self.rho = '%.3f'%(1/z2*float(thickness)*1000)
-        
-    #end def
-    
     #--------------------------------------------------------------------------    
     def create_title(self, name):
         self.titlePanel = wx.Panel(self, -1)
@@ -1478,82 +904,56 @@ class StatusPanel(wx.Panel):
     def create_status(self):
         self.label_ctime = wx.StaticText(self, label="current time:")
         self.label_ctime.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_t = wx.StaticText(self, label="run time (s):")
-        self.label_t.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_d = wx.StaticText(self, label="sample thickness (cm):")
-        self.label_d.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_rA = wx.StaticText(self, label="resistance_A (m"+self.ohm+"):")
-        self.label_rA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_rB = wx.StaticText(self, label="resistance_B (m"+self.ohm+"):")
-        self.label_rB.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_i = wx.StaticText(self, label="current (mA):")
-        self.label_i.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_measurement = wx.StaticText(self, label="measurement:")
-        self.label_measurement.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_rho = wx.StaticText(self, label="resistivity (m"+self.ohm+"cm):")
-        self.label_rho.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_r12 = wx.StaticText(self, label="R12 (m"+self.ohm+"):")
+        self.label_r12.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_r13 = wx.StaticText(self, label="R13 (m"+self.ohm+"):")
+        self.label_r13.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_r24 = wx.StaticText(self, label="R24 (m"+self.ohm+"):")
+        self.label_r24.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_r34 = wx.StaticText(self, label="R34 (m"+self.ohm+"):")
+        self.label_r34.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         
         self.ctimecurrent = wx.StaticText(self, label=self.ctime)
         self.ctimecurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.tcurrent = wx.StaticText(self, label=self.t)
-        self.tcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.dcurrent = wx.StaticText(self, label=self.d)
-        self.dcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.rAcurrent = wx.StaticText(self, label=self.rA)
-        self.rAcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.rBcurrent = wx.StaticText(self, label=self.rB)
-        self.rBcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.icurrent = wx.StaticText(self, label=self.i)
-        self.icurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.measurementcurrent = wx.StaticText(self, label=self.measurement)
-        self.measurementcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.rhocurrent = wx.StaticText(self, label=self.rho)
-        self.rhocurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        
-        
+        self.r12current = wx.StaticText(self, label=self.r12)
+        self.r12current.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.r13current = wx.StaticText(self, label=self.r13)
+        self.r13current.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.r24current = wx.StaticText(self, label=self.r24)
+        self.r24current.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.r34current = wx.StaticText(self, label=self.r34)
+        self.r34current.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
     #end def
         
     #-------------------------------------------------------------------------- 
     def update_values(self):
         self.ctimecurrent.SetLabel(self.ctime)
-        self.tcurrent.SetLabel(self.t)
-        self.dcurrent.SetLabel(self.d)
-        self.rAcurrent.SetLabel(self.rA)
-        self.rBcurrent.SetLabel(self.rB)
-        self.icurrent.SetLabel(self.i)
-        self.measurementcurrent.SetLabel(self.measurement)
-        self.rhocurrent.SetLabel(self.rho)
+        self.r12current.SetLabel(self.r12)
+        self.r13current.SetLabel(self.r13)
+        self.r24current.SetLabel(self.r24)
+        self.r34current.SetLabel(self.r34)
     #end def
        
     #--------------------------------------------------------------------------
     def create_sizer(self):    
-        sizer = wx.GridBagSizer(18,2)
+        sizer = wx.GridBagSizer(8,2)
         
         sizer.Add(self.titlePanel, (0, 0), span = (1,2), border=5, flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.linebreak1,(1,0), span = (1,2))
         
         sizer.Add(self.label_ctime, (2,0))
         sizer.Add(self.ctimecurrent, (2, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_t, (3,0))
-        sizer.Add(self.tcurrent, (3, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_d, (4,0))
-        sizer.Add(self.dcurrent, (4, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         
-        sizer.Add(self.label_rA, (5,0))
-        sizer.Add(self.rAcurrent, (5, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_rB, (6,0))
-        sizer.Add(self.rBcurrent, (6, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_r12, (3,0))
+        sizer.Add(self.r12current, (3, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_r13, (4,0))
+        sizer.Add(self.r13current, (4, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_r24, (5,0))
+        sizer.Add(self.r24current, (5, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_r34, (6,0))
+        sizer.Add(self.r34current, (6, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         
-        sizer.Add(self.label_i, (7,0))
-        sizer.Add(self.icurrent, (7, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        
-        sizer.Add(self.label_rho, (8,0))
-        sizer.Add(self.rhocurrent, (8, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-
-        sizer.Add(self.label_measurement, (9,0))
-        sizer.Add(self.measurementcurrent, (9, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        
-        sizer.Add(self.linebreak2, (10,0), span = (1,2))
+        sizer.Add(self.linebreak2, (7,0), span = (1,2))
         
         self.SetSizer(sizer)
     #end def
@@ -1562,7 +962,7 @@ class StatusPanel(wx.Panel):
 ###############################################################################
 
 ###############################################################################
-class ResistancePanel(wx.Panel):
+class IV12Panel(wx.Panel):
     """
     GUI Window for plotting voltage data.
     """
@@ -1571,34 +971,24 @@ class ResistancePanel(wx.Panel):
         wx.Panel.__init__(self, *args, **kwargs)
         
         global filePath
-        global t_A_list
-        global r_A_list
-        global t_B_list
-        global r_B_list
+        global v12list
+        global i12list
         
         # Placers for the GUI plots:
-        r_A_list = [0]
-        t_A_list = [0]
-        r_B_list = [0]
-        t_B_list = [0]
+        i12list = []
+        v12list = []
         
-        self.tA = 0
-        self.tB = 0
-        self.tP = 0
-        self.rA = 0.0
-        self.rB = 0.0
-
+        self.v = 0
+        self.i = 0
         
-        self.create_title("Resistance Panel")
+        self.create_title("IV12")
         self.init_plot()
         self.canvas = FigureCanvasWxAgg(self, -1, self.figure)
         self.create_control_panel()
         self.create_sizer()
         
-        pub.subscribe(self.OnR_A, "R_A")
-        pub.subscribe(self.OnR_ATime, "Time R_A")
-        pub.subscribe(self.OnR_B, "R_B")
-        pub.subscribe(self.OnR_BTime, "Time R_B")
+        pub.subscribe(self.OnI, "I12")
+        pub.subscribe(self.OnV, "V12")
         
         # For saving the plots at the end of data acquisition:
         pub.subscribe(self.save_plot, "Save_All")
@@ -1623,10 +1013,10 @@ class ResistancePanel(wx.Panel):
     #--------------------------------------------------------------------------
     def create_control_panel(self):
         
-        self.xmin_control = BoundControlBox(self, -1, "t min", 0)
-        self.xmax_control = BoundControlBox(self, -1, "t max", 100)
-        self.ymin_control = BoundControlBox(self, -1, "R min", 0)
-        self.ymax_control = BoundControlBox(self, -1, "R max", 100)
+        self.xmin_control = BoundControlBox(self, -1, "V min", -100)
+        self.xmax_control = BoundControlBox(self, -1, "V max", 100)
+        self.ymin_control = BoundControlBox(self, -1, "I min", -10)
+        self.ymax_control = BoundControlBox(self, -1, "I max", 10)
         
         self.hbox1 = wx.BoxSizer(wx.HORIZONTAL)
         self.hbox1.AddSpacer(10)
@@ -1638,43 +1028,28 @@ class ResistancePanel(wx.Panel):
     #end def
         
     #--------------------------------------------------------------------------
-    def OnR_A(self, msg):
-        self.rA = np.abs(float(msg)*1000)
-        r_A_list.append(self.rA)
+    def OnI(self, msg):
+        self.i = float(msg)*1000
+        i12list.append(self.i)
     #end def
 
     #--------------------------------------------------------------------------
-    def OnR_ATime(self, msg):
-        self.tA = float(msg)   
-        t_A_list.append(self.tA)
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnR_B(self, msg):
-        self.rB = np.abs(float(msg)*1000)
-        r_B_list.append(self.rB)  
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnR_BTime(self, msg):
-        self.tB = float(msg)   
-        t_B_list.append(self.tB)
+    def OnV(self, msg):
+        self.v = float(msg)*1000   
+        v12list.append(self.v)
     #end def
 
     #--------------------------------------------------------------------------
     def init_plot(self):
         self.dpi = 100
-        self.colorA = 'g'
-        self.colorB = 'y'
-        self.colorP = 'r'
+        self.color = 'r'
         
-        self.figure = Figure((6,3.5), dpi=self.dpi)
+        self.figure = Figure((4,3), dpi=self.dpi)
         self.subplot = self.figure.add_subplot(111)
 
-        self.linerA, = self.subplot.plot(t_A_list,r_A_list, color=self.colorA, linewidth=1)
-        self.linerB, = self.subplot.plot(t_B_list,r_B_list, color=self.colorB, linewidth=1)
+        self.line, = self.subplot.plot(v12list,i12list, color=self.color, linewidth=1)
 
-        self.legend = self.figure.legend( (self.linerA, self.linerB), (r"$R_A$", r"$R_B$"), (0.15,0.70),fontsize=8)
+        #self.legend = self.figure.legend( (self.line,), (r"$IV_{12}$",), (0.15,0.70),fontsize=8)
         
     #end def
 
@@ -1682,26 +1057,24 @@ class ResistancePanel(wx.Panel):
     def draw_plot(self,i):
         self.subplot.clear()
         
-        self.subplot.set_ylabel(r"resistance ($m\Omega$)",fontsize=8)
-        self.subplot.set_xlabel("time (s)", fontsize = 8)
+        self.subplot.set_ylabel(r"current ($mA$)", fontsize=8)
+        self.subplot.set_xlabel(r"voltage ($mV$)", fontsize=8)
         
         # Adjustable scale:
         if self.xmax_control.is_auto():
-            xmax = max(t_A_list+t_B_list)
+            xmax = max(v12list)
         else:
             xmax = float(self.xmax_control.manual_value())    
         if self.xmin_control.is_auto():            
-            xmin = 0
+            xmin = min(v12list)
         else:
             xmin = float(self.xmin_control.manual_value())
         if self.ymin_control.is_auto():
-            minR = min(r_A_list+r_B_list)
-            ymin = minR*0.7
+            ymin = min(i12list)
         else:
             ymin = float(self.ymin_control.manual_value())
         if self.ymax_control.is_auto():
-            maxR = max(r_A_list+r_B_list)
-            ymax = maxR*1.3
+            ymax = max(i12list)
         else:
             ymax = float(self.ymax_control.manual_value())
         
@@ -1712,18 +1085,461 @@ class ResistancePanel(wx.Panel):
         pylab.setp(self.subplot.get_xticklabels(), fontsize=8)
         pylab.setp(self.subplot.get_yticklabels(), fontsize=8)
         
-        self.linerA, = self.subplot.plot(t_A_list,r_A_list, color=self.colorA, linewidth=1)
-        self.linerB, = self.subplot.plot(t_B_list,r_B_list, color=self.colorB, linewidth=1)
+        self.line, = self.subplot.plot(v12list,i12list, color=self.color, linewidth=1)
         
-        return (self.linerA, self.linerB)
-        #return (self.subplot.plot( thighV_list, highV_list, color=self.colorH, linewidth=1),
-            #self.subplot.plot( tlowV_list, lowV_list, color=self.colorL, linewidth=1))
-        
+        return (self.line,)
     #end def
     
     #--------------------------------------------------------------------------
     def save_plot(self, msg):
-        path = filePath + "/Resistance_Plot.png"
+        path = filePath + "/IV12curve.png"
+        self.canvas.print_figure(path)
+        
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def create_sizer(self):    
+        sizer = wx.GridBagSizer(3,1)
+        sizer.Add(self.titlePanel, (0, 0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.canvas, ( 1,0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.hbox1, (2,0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        
+        self.SetSizer(sizer)
+    #end def
+    
+#end class
+###############################################################################
+
+###############################################################################
+class IV13Panel(wx.Panel):
+    """
+    GUI Window for plotting voltage data.
+    """
+    #--------------------------------------------------------------------------
+    def __init__(self, *args, **kwargs):
+        wx.Panel.__init__(self, *args, **kwargs)
+        
+        global filePath
+        global v13list
+        global i13list
+        
+        # Placers for the GUI plots:
+        i13list = []
+        v13list = []
+        
+        self.v = 0
+        self.i = 0
+        
+        self.create_title("IV13")
+        self.init_plot()
+        self.canvas = FigureCanvasWxAgg(self, -1, self.figure)
+        self.create_control_panel()
+        self.create_sizer()
+        
+        pub.subscribe(self.OnI, "I13")
+        pub.subscribe(self.OnV, "V13")
+        
+        # For saving the plots at the end of data acquisition:
+        pub.subscribe(self.save_plot, "Save_All")
+        
+        self.animator = animation.FuncAnimation(self.figure, self.draw_plot, interval=2000, blit=False)
+    #end init
+    
+    #--------------------------------------------------------------------------    
+    def create_title(self, name):
+        self.titlePanel = wx.Panel(self, -1)
+        title = wx.StaticText(self.titlePanel, label=name)
+        font_title = wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.BOLD)
+        title.SetFont(font_title)
+        
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add((0,-1))
+        hbox.Add(title, 0, wx.LEFT, 5)
+        
+        self.titlePanel.SetSizer(hbox)    
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def create_control_panel(self):
+        
+        self.xmin_control = BoundControlBox(self, -1, "V min", -100)
+        self.xmax_control = BoundControlBox(self, -1, "V max", 100)
+        self.ymin_control = BoundControlBox(self, -1, "I min", -10)
+        self.ymax_control = BoundControlBox(self, -1, "I max", 10)
+        
+        self.hbox1 = wx.BoxSizer(wx.HORIZONTAL)
+        self.hbox1.AddSpacer(10)
+        self.hbox1.Add(self.xmin_control, border=5, flag=wx.ALL)
+        self.hbox1.Add(self.xmax_control, border=5, flag=wx.ALL)
+        self.hbox1.AddSpacer(10)
+        self.hbox1.Add(self.ymin_control, border=5, flag=wx.ALL)
+        self.hbox1.Add(self.ymax_control, border=5, flag=wx.ALL)     
+    #end def
+        
+    #--------------------------------------------------------------------------
+    def OnI(self, msg):
+        self.i = float(msg)*1000
+        i12list.append(self.i)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def OnV(self, msg):
+        self.v = float(msg)*1000   
+        v12list.append(self.v)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def init_plot(self):
+        self.dpi = 100
+        self.color = 'r'
+        
+        self.figure = Figure((4,3), dpi=self.dpi)
+        self.subplot = self.figure.add_subplot(111)
+
+        self.line, = self.subplot.plot(v13list,i13list, color=self.color, linewidth=1)
+
+        #self.legend = self.figure.legend( (self.line,), (r"$IV_{13}$",), (0.15,0.70),fontsize=8)
+        
+    #end def
+
+    #--------------------------------------------------------------------------
+    def draw_plot(self,i):
+        self.subplot.clear()
+        
+        self.subplot.set_ylabel(r"current ($mA$)", fontsize=8)
+        self.subplot.set_xlabel(r"voltage ($mV$)", fontsize=8)
+        
+        # Adjustable scale:
+        if self.xmax_control.is_auto():
+            xmax = max(v13list)
+        else:
+            xmax = float(self.xmax_control.manual_value())    
+        if self.xmin_control.is_auto():            
+            xmin = min(v13list)
+        else:
+            xmin = float(self.xmin_control.manual_value())
+        if self.ymin_control.is_auto():
+            ymin = min(i13list)
+        else:
+            ymin = float(self.ymin_control.manual_value())
+        if self.ymax_control.is_auto():
+            ymax = max(i13list)
+        else:
+            ymax = float(self.ymax_control.manual_value())
+        
+        self.subplot.set_xlim([xmin, xmax])
+        self.subplot.set_ylim([ymin, ymax])
+        
+        
+        pylab.setp(self.subplot.get_xticklabels(), fontsize=8)
+        pylab.setp(self.subplot.get_yticklabels(), fontsize=8)
+        
+        self.line, = self.subplot.plot(v13list,i13list, color=self.color, linewidth=1)
+        
+        return (self.line,)
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def save_plot(self, msg):
+        path = filePath + "/IV13curve.png"
+        self.canvas.print_figure(path)
+        
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def create_sizer(self):    
+        sizer = wx.GridBagSizer(3,1)
+        sizer.Add(self.titlePanel, (0, 0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.canvas, ( 1,0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.hbox1, (2,0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        
+        self.SetSizer(sizer)
+    #end def
+    
+#end class
+###############################################################################
+
+###############################################################################
+class IV24Panel(wx.Panel):
+    """
+    GUI Window for plotting voltage data.
+    """
+    #--------------------------------------------------------------------------
+    def __init__(self, *args, **kwargs):
+        wx.Panel.__init__(self, *args, **kwargs)
+        
+        global filePath
+        global v24list
+        global i24list
+        
+        # Placers for the GUI plots:
+        i24list = []
+        v24list = []
+        
+        self.v = 0
+        self.i = 0
+        
+        self.create_title("IV24")
+        self.init_plot()
+        self.canvas = FigureCanvasWxAgg(self, -1, self.figure)
+        self.create_control_panel()
+        self.create_sizer()
+        
+        pub.subscribe(self.OnI, "I24")
+        pub.subscribe(self.OnV, "V24")
+        
+        # For saving the plots at the end of data acquisition:
+        pub.subscribe(self.save_plot, "Save_All")
+        
+        self.animator = animation.FuncAnimation(self.figure, self.draw_plot, interval=2000, blit=False)
+    #end init
+    
+    #--------------------------------------------------------------------------    
+    def create_title(self, name):
+        self.titlePanel = wx.Panel(self, -1)
+        title = wx.StaticText(self.titlePanel, label=name)
+        font_title = wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.BOLD)
+        title.SetFont(font_title)
+        
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add((0,-1))
+        hbox.Add(title, 0, wx.LEFT, 5)
+        
+        self.titlePanel.SetSizer(hbox)    
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def create_control_panel(self):
+        
+        self.xmin_control = BoundControlBox(self, -1, "V min", -100)
+        self.xmax_control = BoundControlBox(self, -1, "V max", 100)
+        self.ymin_control = BoundControlBox(self, -1, "I min", -10)
+        self.ymax_control = BoundControlBox(self, -1, "I max", 10)
+        
+        self.hbox1 = wx.BoxSizer(wx.HORIZONTAL)
+        self.hbox1.AddSpacer(10)
+        self.hbox1.Add(self.xmin_control, border=5, flag=wx.ALL)
+        self.hbox1.Add(self.xmax_control, border=5, flag=wx.ALL)
+        self.hbox1.AddSpacer(10)
+        self.hbox1.Add(self.ymin_control, border=5, flag=wx.ALL)
+        self.hbox1.Add(self.ymax_control, border=5, flag=wx.ALL)     
+    #end def
+        
+    #--------------------------------------------------------------------------
+    def OnI(self, msg):
+        self.i = float(msg)*1000
+        i24list.append(self.i)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def OnV(self, msg):
+        self.v = float(msg)*1000   
+        v24list.append(self.v)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def init_plot(self):
+        self.dpi = 100
+        self.color = 'r'
+        
+        self.figure = Figure((4,3), dpi=self.dpi)
+        self.subplot = self.figure.add_subplot(111)
+
+        self.line, = self.subplot.plot(v24list,i24list, color=self.color, linewidth=1)
+
+        #self.legend = self.figure.legend( (self.line,), (r"$IV_{13}$",), (0.15,0.70),fontsize=8)
+        
+    #end def
+
+    #--------------------------------------------------------------------------
+    def draw_plot(self,i):
+        self.subplot.clear()
+        
+        self.subplot.set_ylabel(r"current ($mA$)", fontsize=8)
+        self.subplot.set_xlabel(r"voltage ($mV$)", fontsize=8)
+        
+        # Adjustable scale:
+        if self.xmax_control.is_auto():
+            xmax = max(v24list)
+        else:
+            xmax = float(self.xmax_control.manual_value())    
+        if self.xmin_control.is_auto():            
+            xmin = min(v24list)
+        else:
+            xmin = float(self.xmin_control.manual_value())
+        if self.ymin_control.is_auto():
+            ymin = min(i24list)
+        else:
+            ymin = float(self.ymin_control.manual_value())
+        if self.ymax_control.is_auto():
+            ymax = max(i24list)
+        else:
+            ymax = float(self.ymax_control.manual_value())
+        
+        self.subplot.set_xlim([xmin, xmax])
+        self.subplot.set_ylim([ymin, ymax])
+        
+        
+        pylab.setp(self.subplot.get_xticklabels(), fontsize=8)
+        pylab.setp(self.subplot.get_yticklabels(), fontsize=8)
+        
+        self.line, = self.subplot.plot(v24list,i24list, color=self.color, linewidth=1)
+        
+        return (self.line,)
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def save_plot(self, msg):
+        path = filePath + "/IV24curve.png"
+        self.canvas.print_figure(path)
+        
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def create_sizer(self):    
+        sizer = wx.GridBagSizer(3,1)
+        sizer.Add(self.titlePanel, (0, 0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.canvas, ( 1,0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.hbox1, (2,0), flag=wx.ALIGN_CENTER_HORIZONTAL)
+        
+        self.SetSizer(sizer)
+    #end def
+    
+#end class
+###############################################################################
+
+###############################################################################
+class IV34Panel(wx.Panel):
+    """
+    GUI Window for plotting voltage data.
+    """
+    #--------------------------------------------------------------------------
+    def __init__(self, *args, **kwargs):
+        wx.Panel.__init__(self, *args, **kwargs)
+        
+        global filePath
+        global v34list
+        global i34list
+        
+        # Placers for the GUI plots:
+        i34list = []
+        v34list = []
+        
+        self.v = 0
+        self.i = 0
+        
+        self.create_title("IV34")
+        self.init_plot()
+        self.canvas = FigureCanvasWxAgg(self, -1, self.figure)
+        self.create_control_panel()
+        self.create_sizer()
+        
+        pub.subscribe(self.OnI, "I34")
+        pub.subscribe(self.OnV, "V34")
+        
+        # For saving the plots at the end of data acquisition:
+        pub.subscribe(self.save_plot, "Save_All")
+        
+        self.animator = animation.FuncAnimation(self.figure, self.draw_plot, interval=2000, blit=False)
+    #end init
+    
+    #--------------------------------------------------------------------------    
+    def create_title(self, name):
+        self.titlePanel = wx.Panel(self, -1)
+        title = wx.StaticText(self.titlePanel, label=name)
+        font_title = wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.BOLD)
+        title.SetFont(font_title)
+        
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add((0,-1))
+        hbox.Add(title, 0, wx.LEFT, 5)
+        
+        self.titlePanel.SetSizer(hbox)    
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def create_control_panel(self):
+        
+        self.xmin_control = BoundControlBox(self, -1, "V min", -100)
+        self.xmax_control = BoundControlBox(self, -1, "V max", 100)
+        self.ymin_control = BoundControlBox(self, -1, "I min", -10)
+        self.ymax_control = BoundControlBox(self, -1, "I max", 10)
+        
+        self.hbox1 = wx.BoxSizer(wx.HORIZONTAL)
+        self.hbox1.AddSpacer(10)
+        self.hbox1.Add(self.xmin_control, border=5, flag=wx.ALL)
+        self.hbox1.Add(self.xmax_control, border=5, flag=wx.ALL)
+        self.hbox1.AddSpacer(10)
+        self.hbox1.Add(self.ymin_control, border=5, flag=wx.ALL)
+        self.hbox1.Add(self.ymax_control, border=5, flag=wx.ALL)     
+    #end def
+        
+    #--------------------------------------------------------------------------
+    def OnI(self, msg):
+        self.i = float(msg)*1000
+        i34list.append(self.i)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def OnV(self, msg):
+        self.v = float(msg)*1000   
+        v34list.append(self.v)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def init_plot(self):
+        self.dpi = 100
+        self.color = 'r'
+        
+        self.figure = Figure((4,3), dpi=self.dpi)
+        self.subplot = self.figure.add_subplot(111)
+
+        self.line, = self.subplot.plot(v34list,i34list, color=self.color, linewidth=1)
+
+        #self.legend = self.figure.legend( (self.line,), (r"$IV_{13}$",), (0.15,0.70),fontsize=8)
+        
+    #end def
+
+    #--------------------------------------------------------------------------
+    def draw_plot(self,i):
+        self.subplot.clear()
+        
+        self.subplot.set_ylabel(r"current ($mA$)", fontsize=8)
+        self.subplot.set_xlabel(r"voltage ($mV$)", fontsize=8)
+        
+        # Adjustable scale:
+        if self.xmax_control.is_auto():
+            xmax = max(v34list)
+        else:
+            xmax = float(self.xmax_control.manual_value())    
+        if self.xmin_control.is_auto():            
+            xmin = min(v34list)
+        else:
+            xmin = float(self.xmin_control.manual_value())
+        if self.ymin_control.is_auto():
+            ymin = min(i34list)
+        else:
+            ymin = float(self.ymin_control.manual_value())
+        if self.ymax_control.is_auto():
+            ymax = max(i34list)
+        else:
+            ymax = float(self.ymax_control.manual_value())
+        
+        self.subplot.set_xlim([xmin, xmax])
+        self.subplot.set_ylim([ymin, ymax])
+        
+        
+        pylab.setp(self.subplot.get_xticklabels(), fontsize=8)
+        pylab.setp(self.subplot.get_yticklabels(), fontsize=8)
+        
+        self.line, = self.subplot.plot(v34list,i34list, color=self.color, linewidth=1)
+        
+        return (self.line,)
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def save_plot(self, msg):
+        path = filePath + "/IV34curve.png"
         self.canvas.print_figure(path)
         
     #end def
@@ -1761,19 +1577,23 @@ class Frame(wx.Frame):
     def init_UI(self):
         self.SetBackgroundColour('#E0EBEB')
         self.userpanel = UserPanel(self, size=wx.DefaultSize)
-        self.statuspanel = StatusPanel(self,size=wx.DefaultSize)
-        self.resistancepanel = ResistancePanel(self, size=wx.DefaultSize)
+        self.statuspanel = StatusPanel(self, size=wx.DefaultSize)
+        self.iv12panel = IV12Panel(self, size=wx.DefaultSize)
+        self.iv13panel = IV13Panel(self, size=wx.DefaultSize)
+        self.iv24panel = IV24Panel(self, size=wx.DefaultSize)
+        self.iv34panel = IV34Panel(self, size=wx.DefaultSize)
         
-        self.statuspanel.SetBackgroundColour('#ededed')
-        
-        sizer = wx.GridBagSizer(1, 3)
+        sizer = wx.GridBagSizer(2, 3)
         sizer.Add(self.userpanel, (0,0),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.statuspanel, (0,2),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.resistancepanel, (0,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.statuspanel, (1,0),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.iv12panel, (0,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.iv13panel, (0,2),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.iv24panel, (1,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.iv34panel, (1,2),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Fit(self)
         
         self.SetSizer(sizer)
-        self.SetTitle('Room Temp Resistivity GUI')
+        self.SetTitle('IV Curves')
         self.Centre() 
     #end def
         
@@ -1904,7 +1724,7 @@ class App(wx.App):
         self.frame = Frame(parent=None, title="Room Temp Resistivity GUI", size=(1350,1350))
         self.frame.Show()
         
-        setup = Setup()
+        #setup = Setup()
         return True
     #end init
     

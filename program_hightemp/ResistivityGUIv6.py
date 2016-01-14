@@ -42,7 +42,7 @@ import EnhancedStatusBar as ESB
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
 
-version = '5.0 (2015-08-30)'
+version = '6.0 (2016-01-11)'
 
 '''
 Global Variables:
@@ -52,13 +52,14 @@ Global Variables:
 dataFile = 'Data_Backup.csv'
 finaldataFile = 'Data.csv'
 statusFile = 'Status.csv'
+temperatureFile = 'Temperature.csv'
 resistivityFile = 'Resistivity.csv'
 
 thickness = 0.1 #placeholder for sample thickness in cm
 
 current = .01 # (A) Current that is sourced by the k2400
 APP_EXIT = 1 # id for File\Quit
-stability_threshold = 0.08/60 # change in PID temp must be less than this value for a set time in order to reach an equilibrium
+stability_threshold = 0.1/60 # change in PID temp must be less than this value for a set time in order to reach an equilibrium
 tolerance = 2 # Temperature must be within this temperature range of the PID setpoint in order to begin a measurement
 measureList = []
 measurement_number = 10
@@ -82,6 +83,7 @@ filePath = 'global file path'
 # placer for files to be created
 myfile = 'global file'
 rawfile = 'global file'
+pidfile = 'global file'
 processfile = 'global file'
 
 # Placers for the GUI plots:
@@ -680,9 +682,10 @@ class TakeData:
         try:
             while abort_ID == 0:
                 for temp in measureList:
+                    self.measurementtemp = temp
                     print "Set measurement to %f" %(temp)
                     if self.cycle == 'Heating':
-                        currenttemp = temp - 3 * self.tolerance
+                        currenttemp = temp
                         print 'set heater setpoint to ', currenttemp
                         while True:
                             try:
@@ -731,10 +734,12 @@ class TakeData:
 
                     n=0
                     condition = False
+                    self.stabilitytime = time.time()
                     while (not condition):
                         n = n+1
                         for i in range(10):
                             self.take_PID_Data()
+                            if abort_ID == 1: break
                             time.sleep(3)
                         #end for
                         if n%4 == 0:
@@ -745,32 +750,41 @@ class TakeData:
                         if (self.cycle == 'Heating'):
                             condition = (self.tol == 'OK' and self.stable == 'OK')
                             if (self.stable == 'OK' and self.tol != 'OK'):
-                                if (temp - self.tS > self.tolerance and temp - self.tS < 10*self.tolerance):
-                                    if (currenttemp - temp < 5*self.tolerance):
-                                        print 'increase current temp'
-                                        currenttemp = currenttemp + self.tolerance
-                                        while True:
-                                            try:
-                                                self.heaterTC.set_setpoint(currenttemp)
-                                                break
-                                            except IOError:
-                                                print 'IOError: communication failure'
-                                        #end while
-                                        self.recentPID = []
-                                        self.recentPIDtime=[]
-                                        self.stability = '-'
-                                        self.stable == 'NO'
-                                        self.tol = 'NO'
-                                        self.updateGUI(stamp="Stability", data=self.stability)
-                                    #end if
+                                if (temp - self.tolerance > self.tS and time.time() - self.stabilitytime > 600):
+                                    print 'increase current temp'
+                                    self.stabilitytime = time.time()
+                                    tempdiff = abs(temp - self.tS)
+                                    currenttemp = currenttemp + .5*tempdiff
+                                    while True:
+                                        try:
+                                            self.heaterTC.set_setpoint(currenttemp)
+                                            break
+                                        except IOError:
+                                            print 'IOError: communication failure'
+                                    #end while
+                                    self.recentPID = []
+                                    self.recentPIDtime=[]
+                                    self.stability = '-'
+                                    self.stable == 'NO'
+                                    self.tol = 'NO'
+                                    self.updateGUI(stamp="Stability", data=self.stability)
+                                    
                                 #end if
-                                if (self.tS > temp + self.tolerance and temp-currenttemp < 8*self.tolerance):
+                                if (self.tS > temp + self.tolerance and time.time() - self.stabilitytime > 600):
                                     print 'decrease current temp'
-                                    currenttemp = currenttemp - 4*self.tolerance
-                                    try:
-                                        self.heaterTC.set_setpoint(currenttemp)
-                                    except IOError:
-                                        print 'ioerror: communication failure'
+                                    self.stabilitytime = time.time()
+                                    tempdiff = abs(self.tS - temp)
+                                    currenttemp = currenttemp - .5*tempdiff
+                                    if (currenttemp < 15):
+                                        currenttemp = 15
+                                    #end if
+                                    while True:
+                                        try:
+                                            self.heaterTC.set_setpoint(currenttemp)
+                                            break
+                                        except IOError:
+                                            print 'ioerror: communication failure'
+                                    #end while
                                     self.recentPID = []
                                     self.recentPIDtime=[]
                                     self.stability = '-'
@@ -899,6 +913,19 @@ class TakeData:
 
         self.safety_check()
         self.check_status()
+        
+        global pidfile
+        print('\nWrite status to file\n')
+        pidfile.write('%.1f,'%(time.time()-self.start))
+        if self.stability != '-':
+            pidfile.write('%.4f,' %(self.stability*60))
+        #end if
+        else:
+            pidfile.write('-,')
+        #end else
+        pidfile.write('%.2f,%.2f,%.2f,' %(self.tS,self.tH,self.tHset))
+        pidfile.write('%.2f,'%(self.measurementtemp))
+        pidfile.write('%s\n'%(self.cycle))
     #end def
 
     #--------------------------------------------------------------------------
@@ -1276,6 +1303,7 @@ class TakeData:
         global finaldataFile
         global myfile
         global rawfile
+        global pidfile
         global processfile
 
         stop = time.time()
@@ -1285,6 +1313,7 @@ class TakeData:
 
         myfile.close() # Close the file
         rawfile.close()
+        pidfile.close()
         processfile.close()
 
         myfile = open(dataFile, 'r') # Opens the file for Reading
@@ -1484,8 +1513,10 @@ class UserPanel(wx.Panel):
         global finaldataFile
         global myfile
         global rawfile
+        global pidfile
         global processfile
         global statusFile
+        global temperatureFile
         global resistivityFile
         global measureList
         global abort_ID
@@ -1504,6 +1535,7 @@ class UserPanel(wx.Panel):
                 if self.run_check == wx.ID_OK:
                     myfile = open(dataFile, 'w') # opens file for writing/overwriting
                     rawfile = open(statusFile,'w')
+                    pidfile = open(temperatureFile,'w')
                     processfile = open(resistivityFile,'w')
                     begin = datetime.now() # Current date and time
                     myfile.write('Start Time: ' + str(begin) + '\n')
@@ -1515,6 +1547,9 @@ class UserPanel(wx.Panel):
 
                     rawheaders = 'time (s), thickness (cm), sampletemp (C), heatertemp (C), heatersetpoint (C), cycle, R_A (mOhm), R_B (mOhm), resistivity (mOhm*cm)\n'
                     rawfile.write(rawheaders)
+                    
+                    pidheaders = 'time (s), stability (C/min), sampletemp (C), heatertemp (C), heatersetpoint (C), measurementtemp (C), cycle\n'
+                    pidfile.write(pidheaders)
 
                     processheaders = 'time (s), temp (C),resistivity (mOhm*cm)\n'
                     processfile.write(processheaders)
