@@ -735,18 +735,17 @@ class TakeData:
                     n=0
                     condition = False
                     self.stabilitytime = time.time()
+                    print "start stability while loop"
                     while (not condition):
                         n = n+1
                         for i in range(10):
                             self.take_PID_Data()
-                            if abort_ID == 1: break
                             time.sleep(3)
+                            if abort_ID == 1: break
                         #end for
                         if n%4 == 0:
                             self.updateStats()
                         #end if
-                        if abort_ID == 1: break
-
                         if (self.cycle == 'Heating'):
                             condition = (self.tol == 'OK' and self.stable == 'OK')
                             if (self.stable == 'OK' and self.tol != 'OK'):
@@ -792,33 +791,30 @@ class TakeData:
                                     self.tol = 'NO'
                                     self.updateGUI(stamp="Stability", data=self.stability)
                                 #end if
+                            #end if
+                        #end if
                         elif (self.cycle == 'Cooling'):
                             condition = (self.tol == 'OK')
+                        #end elif
+                        if abort_ID == 1: break
                     # end while
-
-                    if abort_ID == 1: break
                     # start measurement
                     if (condition):
                         self.measurement = 'ON'
                         self.updateGUI(stamp='Measurement', data=self.measurement)
-
                         for i in range(measurement_number):
                             print 'measurement number: ', i
                             self.data_measurement()
                             self.write_data_to_file()
                             if abort_ID == 1: break
-                        #end for
-
-                        if abort_ID == 1: break
+                        #end for             
                         self.measurement = 'OFF'
-
                         self.tol = 'NO'
                         self.stable = 'NO'
                         self.updateGUI(stamp='Measurement', data=self.measurement)
+                        if abort_ID == 1: break
                     #end if
-                    if abort_ID == 1: break
                     self.process_data()
-
                     #Check/Change cycle
                     if (self.cycle == 'Heating' and (measureList[self.Tnum+1] < temp)):
                         self.cycle = 'Cooling'
@@ -826,7 +822,6 @@ class TakeData:
                         self.updateGUI(stamp='Cycle', data=self.cycle)
                     #end if
                     self.Tnum = self.Tnum + 1
-
                     if abort_ID == 1: break
                 #end for
                 abort_ID = 1
@@ -868,7 +863,7 @@ class TakeData:
         """ Takes data from the PID and proceeds to a
             function that checks the PID setpoints.
         """
-
+        print "take PID data"
         try:
             # Take Data
             self.tS = float(self.sampleTC.get_pv())
@@ -915,7 +910,7 @@ class TakeData:
         self.check_status()
         
         global pidfile
-        print('\nWrite status to file\n')
+        print('\nWrite pid data to file\n')
         pidfile.write('%.1f,'%(time.time()-self.start))
         if self.stability != '-':
             pidfile.write('%.4f,' %(self.stability*60))
@@ -932,7 +927,7 @@ class TakeData:
     def safety_check(self):
         global maxLimit
         global abort_ID
-
+        print "temperature safety check"
         if float(self.tS) > maxLimit or float(self.tH) > maxLimit:
             abort_ID = 1
     #end def
@@ -949,7 +944,7 @@ class TakeData:
     #--------------------------------------------------------------------------
     def check_status(self):
         global measureList
-
+        print "check tolerance and stability"
         if (self.cycle == 'Heating'):
             current_measurement = measureList[self.Tnum]
             if (np.abs(self.tS-current_measurement) < self.tolerance):
@@ -1005,8 +1000,8 @@ class TakeData:
         self.r_1234 = abs(self.r_1234)
         self.k2700.closeChannels('125, 127, 128')
         print(self.k2700.get_closedChannels())
-        print "t_r1234: %.2f s\tr1234: %.2f Ohm" % (self.t_1234, self.r_1234)
-        if abort_ID == 1: return
+        print "t_r1234: %.2f s\tr1234: %.2f mOhm" % (self.t_1234, self.r_1234*1000)
+        
         time.sleep(self.delay)
 
         # r_34,12
@@ -1021,8 +1016,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('118')
         print(self.k2700.get_closedChannels())
-        print "t_r3412: %.2f s\tr3412: %.2f Ohm" % (self.t_3412, self.r_3412)
-        if abort_ID == 1: return
+        print "t_r3412: %.2f s\tr3412: %.2f mOhm" % (self.t_3412, self.r_3412*1000)
+        
         time.sleep(self.delay)
 
         # Calculate r_A
@@ -1030,7 +1025,7 @@ class TakeData:
         self.t_A = time.time()-self.start
         self.updateGUI(stamp="Time R_A", data=self.t_A)
         self.updateGUI(stamp="R_A", data=self.r_A*1000)
-        print "t_rA: %.2f s\trA: %.2f Ohm" % (self.t_A, self.r_A)
+        print "t_rA: %.2f s\trA: %.2f mOhm" % (self.t_A, self.r_A*1000)
 
         ### r_B:
         # r_13,24
@@ -1045,8 +1040,8 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('119')
         print(self.k2700.get_closedChannels())
-        print "t_r1324: %.2f s\tr1324: %.2f Ohm" % (self.t_1324, self.r_1324)
-        if abort_ID == 1: return
+        print "t_r1324: %.2f s\tr1324: %.2f mOhm" % (self.t_1324, self.r_1324*1000)
+        
         time.sleep(self.delay)
 
         # r_24,13
@@ -1061,17 +1056,17 @@ class TakeData:
         print(self.k2700.get_closedChannels())
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
-        print "t_r2413: %.2f s\tr2413: %.2f Ohm" % (self.t_2413, self.r_2413)
-        if abort_ID == 1: return
+        print "t_r2413: %.2f s\tr2413: %.2f mOhm" % (self.t_2413, self.r_2413*1000)
+        
         # Calculate r_B
         self.r_B = (self.r_1324 + self.r_2413)/2
         self.t_B = time.time()-self.start
         self.updateGUI(stamp="Time R_B", data=self.t_B)
         self.updateGUI(stamp="R_B", data=self.r_B*1000)
-        print "t_rB: %.2f s\trB: %.2f Ohm" % (self.t_B, self.r_B)
+        print "t_rB: %.2f s\trB: %.2f mOhm" % (self.t_B, self.r_B*1000)
 
         self.resistivity = self.resistivitycalc([self.r_A],[self.r_B])
-        print "resistivity: %f" % (self.resistivity*1000)
+        print "resistivity: %f mOhm cm" % (self.resistivity*1000)
         self.updateGUI(stamp = "Time Resistivity", data = self.t_B)
         self.updateGUI(stamp = "Resistivity", data = self.resistivity*1000)
 
@@ -1129,6 +1124,7 @@ class TakeData:
 
     #--------------------------------------------------------------------------
     def resistivitycalc(self,Alist,Blist):
+        print "calculate resistivity"
         global thickness
         delta = 0.0005 # error limit (0.05%)
         lim = 1
@@ -1154,7 +1150,7 @@ class TakeData:
 
     #--------------------------------------------------------------------------
     def data_measurement(self):
-
+        print "resistivity data measurement"
         self.delay = 2.5 # time for the keithley to take a steady measurement
 
         temp1 = float(sampleTC.get_pv())
@@ -1174,7 +1170,6 @@ class TakeData:
         self.k2700.closeChannels('125, 127, 128')
         print(self.k2700.get_closedChannels())
         print "t_r1234: %.2f s\tr1234: %.2f Ohm" % (self.t_1234, self.r_1234)
-        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # r_34,12
@@ -1190,7 +1185,6 @@ class TakeData:
         self.k2700.openChannels('118')
         print(self.k2700.get_closedChannels())
         print "t_r3412: %.2f s\tr3412: %.2f Ohm" % (self.t_3412, self.r_3412)
-        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # Calculate r_A
@@ -1216,7 +1210,6 @@ class TakeData:
         self.k2700.openChannels('119')
         print(self.k2700.get_closedChannels())
         print "t_r1324: %.2f s\tr1324: %.2f Ohm" % (self.t_1324, self.r_1324)
-        if abort_ID == 1: return
         time.sleep(self.delay)
 
         # r_24,13
@@ -1232,7 +1225,6 @@ class TakeData:
         self.k2700.openChannels('120')
         print(self.k2700.get_closedChannels())
         print "t_r2413: %.2f s\tr2413: %.2f Ohm" % (self.t_2413, self.r_2413)
-        if abort_ID == 1: return
         # Calculate r_B
         self.r_B = (self.r_1324 + self.r_2413)/2
         self.t_B = time.time()-self.start

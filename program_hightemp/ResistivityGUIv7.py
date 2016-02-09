@@ -591,7 +591,7 @@ class InitialCheck:
 ###############################################################################
 
 ###############################################################################
-class ProcessThreadRun(Thread):
+class ProcessThread(Thread):
     """
     Thread that runs the operations behind the GUI. This includes measuring
     and plotting.
@@ -970,13 +970,13 @@ class TakeData:
         self.updateGUI(stamp="Current Status", data=float(self.current)*1000)
         time.sleep(self.delay)
         v1p = float( self.k2182.fetch() )
-
+        time.sleep(self.delay)
         # negative V:
         self.k2400.set_current(-1*float(self.current))
         self.updateGUI(stamp="Current Status", data=-1*float(self.current)*1000)
         time.sleep(self.delay)
         vn = float( self.k2182.fetch() )
-
+        time.sleep(self.delay)
         t2 = time.time() - self.start
 
         # positive V2:
@@ -984,7 +984,7 @@ class TakeData:
         self.updateGUI(stamp="Current Status", data=float(self.current)*1000)
         time.sleep(self.delay)
         v2p = float( self.k2182.fetch() )
-
+        time.sleep(self.delay)
         self.k2400.turn_source_off()
         self.updateGUI(stamp="Current Status", data=0)
 
@@ -1444,7 +1444,7 @@ class UserPanel(wx.Panel):
                     self.btn_stop.Enable()
 
                     #start the threading process
-                    thread = ProcessThreadRun()
+                    thread = ProcessThread()
 
                 #end if
 
